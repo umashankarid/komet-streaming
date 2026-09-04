@@ -220,4 +220,43 @@ describe("YouTubeApiService", () => {
       /not connected/,
     );
   });
+
+  it("auto-creates a reusable stream when none is configured", async () => {
+    const { fn, calls } = fakeFetch([
+      () => ({ access_token: "tok", expires_in: 3600 }), // token
+      () => ({ id: "bcast-1" }), // create broadcast
+      () => ({ id: "auto-stream-1" }), // create liveStream (auto)
+      () => ({ id: "bcast-1" }), // bind
+    ]);
+    const svc = new YouTubeApiService(
+      { clientId: "c", clientSecret: "s", refreshToken: "r" }, // no streamId
+      fn,
+    );
+    const handle = await svc.createBroadcast({ title: "Court 1" });
+    expect(handle.broadcastId).toBe("bcast-1");
+    const createStream = calls.find((c) => c.url.includes("/liveStreams?part="));
+    expect(createStream).toBeDefined();
+    const bind = calls.find((c) => c.url.includes("/bind"));
+    expect(bind?.url).toContain("streamId=auto-stream-1");
+  });
+
+  it("reuses the auto-created stream on the second broadcast", async () => {
+    const { fn, calls } = fakeFetch([
+      () => ({ access_token: "tok", expires_in: 3600 }),
+      () => ({ id: "b1" }),
+      () => ({ id: "auto-1" }),
+      () => ({ id: "b1" }),
+      () => ({ id: "b2" }),
+      () => ({ id: "b2" }),
+    ]);
+    const svc = new YouTubeApiService(
+      { clientId: "c", clientSecret: "s", refreshToken: "r" },
+      fn,
+    );
+    await svc.createBroadcast({ title: "First" });
+    await svc.createBroadcast({ title: "Second" });
+    // liveStream is created only once.
+    const streamCreates = calls.filter((c) => c.url.includes("/liveStreams?part="));
+    expect(streamCreates).toHaveLength(1);
+  });
 });

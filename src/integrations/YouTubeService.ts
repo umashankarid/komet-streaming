@@ -60,8 +60,12 @@ export interface YouTubeConfig {
    * "Login with YouTube" reconnect is picked up without a restart).
    */
   refreshToken: string | (() => string | undefined);
-  /** The channel's persistent stream id to bind broadcasts to. */
-  streamId: string;
+  /**
+   * The channel's persistent stream id to bind broadcasts to. Optional: when
+   * absent, the service auto-creates a reusable stream on first use and caches
+   * it (spec section 4). Provide it to pin a specific stream.
+   */
+  streamId?: string;
   /** Default privacy for new broadcasts. */
   privacy?: "public" | "unlisted" | "private";
 }
@@ -83,17 +87,16 @@ export function youTubeServiceFromEnv(
 ): YouTubeService {
   const clientId = env.YOUTUBE_CLIENT_ID;
   const clientSecret = env.YOUTUBE_CLIENT_SECRET;
-  const streamId = env.YOUTUBE_STREAM_ID;
+  const streamId = env.YOUTUBE_STREAM_ID; // optional now (auto-create if absent)
   // Token source: prefer the dynamic store, fall back to a static env token.
   const envToken = env.YOUTUBE_REFRESH_TOKEN;
   const tokenProvider: () => string | undefined = getRefreshToken
     ? () => getRefreshToken() ?? envToken
     : () => envToken;
 
-  // Client credentials + stream id are the fixed requirements. The refresh
-  // token can arrive later via the OAuth login, so we still return the real
-  // service (it errors only if used before a token exists).
-  if (!clientId || !clientSecret || !streamId) {
+  // Client credentials are the fixed requirement. The refresh token can arrive
+  // later via OAuth login, and the stream is auto-created if not pinned.
+  if (!clientId || !clientSecret) {
     return new NoopYouTubeService();
   }
   const privacy = normalizePrivacy(env.YOUTUBE_PRIVACY);
@@ -141,6 +144,8 @@ export class YouTubeApiService implements YouTubeService {
   private readonly fetchImpl: FetchLike;
   private accessToken?: string;
   private accessTokenExpiry = 0;
+  /** Cached id of a reusable stream we auto-created (when none configured). */
+  private autoStreamId?: string;
 
   constructor(cfg: YouTubeConfig, fetchImpl?: FetchLike) {
     this.cfg = cfg;
@@ -238,9 +243,10 @@ export class YouTubeApiService implements YouTubeService {
     )) as { id: string };
     const broadcastId = created.id;
 
-    // 2) Bind the broadcast to the channel's persistent stream key.
+    // 2) Bind the broadcast to a reusable stream (configured or auto-created).
+    const streamId = await this.resolveStreamId(params.title);
     await this.apiFetch(
-      `/liveBroadcasts/bind?id=${encodeURIComponent(broadcastId)}&streamId=${encodeURIComponent(this.cfg.streamId)}&part=id,contentDetails`,
+      `/liveBroadcasts/bind?id=${encodeURIComponent(broadcastId)}&streamId=${encodeURIComponent(streamId)}&part=id,contentDetails`,
       { method: "POST" },
     );
 
@@ -248,6 +254,32 @@ export class YouTubeApiService implements YouTubeService {
       broadcastId,
       watchUrl: `https://www.youtube.com/watch?v=${broadcastId}`,
     };
+  }
+
+  /**
+   * Return the stream id to bind to: the configured one, a previously
+   * auto-created one, or a newly created reusable stream (cached for reuse).
+   */
+  private async resolveStreamId(titleHint: string): Promise<string> {
+    if (this.cfg.streamId) return this.cfg.streamId;
+    if (this.autoStreamId) return this.autoStreamId;
+    const created = (await this.apiFetch(
+      "/liveStreams?part=snippet,cdn,contentDetails",
+      {
+        method: "POST",
+        body: {
+          snippet: { title: `Komet — ${titleHint}`.slice(0, 128) },
+          cdn: {
+            frameRate: "variable",
+            ingestionType: "rtmp",
+            resolution: "variable",
+          },
+          contentDetails: { isReusable: true },
+        },
+      },
+    )) as { id: string };
+    this.autoStreamId = created.id;
+    return created.id;
   }
 
   async transitionToLive(broadcastId: string): Promise<void> {

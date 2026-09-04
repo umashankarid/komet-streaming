@@ -135,4 +135,22 @@ describe("YouTubeAuthService", () => {
     const svc = new YouTubeAuthService(cfg, fn);
     await expect(svc.listLiveStreams("at-1")).rejects.toThrow(/liveStreams lookup failed/);
   });
+
+  it("creates a reusable live stream and returns id + key", async () => {
+    const { fn, calls } = fetchReturning({
+      id: "new-stream-1",
+      cdn: { ingestionInfo: { streamName: "abcd-1234-key" } },
+    });
+    const svc = new YouTubeAuthService(cfg, fn);
+    const s = await svc.createLiveStream("at-1", "Komet Court 1");
+    expect(s).toEqual({ streamId: "new-stream-1", streamKey: "abcd-1234-key" });
+    expect(calls[0].url).toContain("/liveStreams?part=");
+    expect((calls[0].init as { method: string }).method).toBe("POST");
+  });
+
+  it("throws when live stream creation fails", async () => {
+    const { fn } = fetchReturning({}, false, 500);
+    const svc = new YouTubeAuthService(cfg, fn);
+    await expect(svc.createLiveStream("at-1", "x")).rejects.toThrow(/liveStream create failed/);
+  });
 });

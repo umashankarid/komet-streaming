@@ -154,6 +154,8 @@ export class YouTubeAuthService {
   /**
    * List the channel's reusable liveStreams (ingest destinations). Used to help
    * the operator pick a YOUTUBE_STREAM_ID, or to auto-create/select per court.
+   * The `cdn` part is requested but the endpoint can 500 on some channels; the
+   * caller should surface a helpful message.
    */
   async listLiveStreams(accessToken: string): Promise<LiveStreamInfo[]> {
     const res = await this.fetchImpl(
@@ -161,9 +163,8 @@ export class YouTubeAuthService {
       { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
     );
     if (!res.ok) {
-      throw new Error(
-        `liveStreams lookup failed (${res.status}): ${await res.text()}`,
-      );
+      const body = await res.text();
+      throw new Error(`liveStreams lookup failed (${res.status}): ${body}`);
     }
     const json = (await res.json()) as {
       items?: Array<{
@@ -178,5 +179,48 @@ export class YouTubeAuthService {
       ingestionType: it.cdn?.ingestionType,
       resolution: it.cdn?.resolution,
     }));
+  }
+
+  /**
+   * Create a reusable liveStream (ingest destination) on the channel and return
+   * its id + the RTMP stream key. Used to auto-provision a per-court stream
+   * when no YOUTUBE_STREAM_ID is configured (spec section 4).
+   */
+  async createLiveStream(
+    accessToken: string,
+    title: string,
+  ): Promise<{ streamId: string; streamKey?: string }> {
+    const res = await this.fetchImpl(
+      "https://www.googleapis.com/youtube/v3/liveStreams?part=snippet,cdn,contentDetails",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          snippet: { title },
+          cdn: {
+            frameRate: "variable",
+            ingestionType: "rtmp",
+            resolution: "variable",
+          },
+          contentDetails: { isReusable: true },
+        }),
+      },
+    );
+    if (!res.ok) {
+      throw new Error(
+        `liveStream create failed (${res.status}): ${await res.text()}`,
+      );
+    }
+    const json = (await res.json()) as {
+      id: string;
+      cdn?: { ingestionInfo?: { streamName?: string } };
+    };
+    return {
+      streamId: json.id,
+      streamKey: json.cdn?.ingestionInfo?.streamName,
+    };
   }
 }
