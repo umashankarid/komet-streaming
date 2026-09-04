@@ -237,7 +237,7 @@ export class YouTubeApiService implements YouTubeService {
             privacyStatus: privacy,
             selfDeclaredMadeForKids: false,
           },
-          contentDetails: { enableAutoStart: false, enableAutoStop: false },
+          contentDetails: { enableAutoStart: true, enableAutoStop: true },
         },
       },
     )) as { id: string };
@@ -283,10 +283,21 @@ export class YouTubeApiService implements YouTubeService {
   }
 
   async transitionToLive(broadcastId: string): Promise<void> {
-    await this.apiFetch(
-      `/liveBroadcasts/transition?broadcastStatus=live&id=${encodeURIComponent(broadcastId)}&part=id,status`,
-      { method: "POST" },
-    );
+    // With enableAutoStart, YouTube transitions the broadcast to live itself
+    // once ingest becomes active. Calling transition explicitly before video
+    // is flowing returns 403 (errorStreamInactive / redundantTransition). That
+    // is expected and harmless here, so we tolerate 403 and let autoStart do
+    // the work. Other errors still propagate.
+    try {
+      await this.apiFetch(
+        `/liveBroadcasts/transition?broadcastStatus=live&id=${encodeURIComponent(broadcastId)}&part=id,status`,
+        { method: "POST" },
+      );
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (msg.includes("failed (403)")) return; // stream not active yet
+      throw err;
+    }
   }
 
   async completeBroadcast(broadcastId: string): Promise<void> {

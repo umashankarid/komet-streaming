@@ -259,4 +259,46 @@ describe("YouTubeApiService", () => {
     const streamCreates = calls.filter((c) => c.url.includes("/liveStreams?part="));
     expect(streamCreates).toHaveLength(1);
   });
+
+  it("tolerates a 403 on transitionToLive (autoStart handles it)", async () => {
+    let n = 0;
+    const fn: FetchLike = async () => {
+      n++;
+      if (n === 1) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ access_token: "tok", expires_in: 3600 }),
+          text: async () => "",
+        };
+      }
+      return { ok: false, status: 403, json: async () => ({}), text: async () => "errorStreamInactive" };
+    };
+    const svc = new YouTubeApiService(
+      { clientId: "c", clientSecret: "s", refreshToken: "r", streamId: "s9" },
+      fn,
+    );
+    await expect(svc.transitionToLive("b1")).resolves.toBeUndefined();
+  });
+
+  it("rethrows non-403 errors on transitionToLive", async () => {
+    let n = 0;
+    const fn: FetchLike = async () => {
+      n++;
+      if (n === 1) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ access_token: "tok", expires_in: 3600 }),
+          text: async () => "",
+        };
+      }
+      return { ok: false, status: 500, json: async () => ({}), text: async () => "boom" };
+    };
+    const svc = new YouTubeApiService(
+      { clientId: "c", clientSecret: "s", refreshToken: "r", streamId: "s9" },
+      fn,
+    );
+    await expect(svc.transitionToLive("b1")).rejects.toThrow(/failed \(500\)/);
+  });
 });
