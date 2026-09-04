@@ -107,6 +107,10 @@ export function createApp(orch: MatchOrchestrator, opts: AppOptions): Express {
       if (req.path === "/api/youtube/disconnect" && !isAuthed(req)) {
         return res.status(401).json({ error: "Authentication required" });
       }
+      // Stream listing exposes stream IDs — require auth.
+      if (req.path === "/api/youtube/streams" && !isAuthed(req)) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
       return next();
     });
     app.use(opts.authRouter);

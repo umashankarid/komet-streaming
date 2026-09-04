@@ -107,4 +107,32 @@ describe("YouTubeAuthService", () => {
     const info = await svc.fetchChannelInfo("at-1");
     expect(info.channelTitle).toBe("YouTube channel");
   });
+
+  it("lists reusable live streams", async () => {
+    const { fn, calls } = fetchReturning({
+      items: [
+        { id: "s-1", snippet: { title: "Komet Court 1" }, cdn: { resolution: "1080p" } },
+        { id: "s-2", snippet: { title: "Komet Court 2" }, cdn: {} },
+      ],
+    });
+    const svc = new YouTubeAuthService(cfg, fn);
+    const streams = await svc.listLiveStreams("at-1");
+    expect(streams).toEqual([
+      { streamId: "s-1", title: "Komet Court 1", ingestionType: undefined, resolution: "1080p" },
+      { streamId: "s-2", title: "Komet Court 2", ingestionType: undefined, resolution: undefined },
+    ]);
+    expect(calls[0].url).toContain("/liveStreams");
+  });
+
+  it("returns an empty list when there are no streams", async () => {
+    const { fn } = fetchReturning({});
+    const svc = new YouTubeAuthService(cfg, fn);
+    expect(await svc.listLiveStreams("at-1")).toEqual([]);
+  });
+
+  it("throws when the streams lookup fails", async () => {
+    const { fn } = fetchReturning({}, false, 403);
+    const svc = new YouTubeAuthService(cfg, fn);
+    await expect(svc.listLiveStreams("at-1")).rejects.toThrow(/liveStreams lookup failed/);
+  });
 });

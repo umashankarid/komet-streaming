@@ -140,6 +140,7 @@
       <span style="flex:1"></span>
       <span id="yt-account" class="status">YouTube: …</span>
       <button id="yt-connect" style="display:none">Login with YouTube</button>
+      <button id="yt-streams" style="display:none">Streams</button>
       <button id="yt-disconnect" style="display:none">Disconnect</button>
       <a class="link" href="/">Dashboard</a>
       <form method="POST" action="/logout" style="display:inline;margin-left:12px">
@@ -473,10 +474,12 @@
             label.textContent = "YouTube: 🟢 " + (s.channelTitle || "Connected");
             connectBtn.style.display = "none";
             disconnectBtn.style.display = "inline-block";
+            document.getElementById("yt-streams").style.display = "inline-block";
           } else {
             label.textContent = "YouTube: ⚪ Not connected";
             connectBtn.style.display = "inline-block";
             disconnectBtn.style.display = "none";
+            document.getElementById("yt-streams").style.display = "none";
           }
         } catch (_e) {
           document.getElementById("yt-account").textContent = "YouTube: —";
@@ -490,6 +493,30 @@
         if (!confirm("Disconnect the YouTube account?")) return;
         await fetch("/api/youtube/disconnect", { method: "POST" });
         loadYouTubeStatus();
+      });
+      document.getElementById("yt-streams").addEventListener("click", async () => {
+        try {
+          const r = await fetch("/api/youtube/streams");
+          const data = await r.json();
+          if (!r.ok) {
+            alert(data.error || "Failed to list streams");
+            return;
+          }
+          if (!data.streams || data.streams.length === 0) {
+            alert("No reusable streams found on this channel. Create one in YouTube Studio → Go Live → Stream.");
+            return;
+          }
+          const lines = data.streams.map(function (s) {
+            return s.title + "\n  streamId: " + s.streamId +
+              (s.resolution ? "  (" + s.resolution + ")" : "");
+          });
+          alert(
+            "Your YouTube reusable streams:\n\n" + lines.join("\n\n") +
+            "\n\nCopy the streamId you want into the YOUTUBE_STREAM_ID env var in Coolify."
+          );
+        } catch (_e) {
+          alert("Failed to list streams.");
+        }
       });
 
       // Surface the OAuth callback result, then clean the URL.

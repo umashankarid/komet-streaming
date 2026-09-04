@@ -36,6 +36,13 @@ export interface ChannelInfo {
   channelTitle: string;
 }
 
+export interface LiveStreamInfo {
+  streamId: string;
+  title: string;
+  ingestionType?: string;
+  resolution?: string;
+}
+
 export class YouTubeAuthService {
   private readonly cfg: YouTubeAuthConfig;
   private readonly fetchImpl: FetchLike;
@@ -142,5 +149,34 @@ export class YouTubeAuthService {
       channelId: item.id,
       channelTitle: item.snippet?.title ?? "YouTube channel",
     };
+  }
+
+  /**
+   * List the channel's reusable liveStreams (ingest destinations). Used to help
+   * the operator pick a YOUTUBE_STREAM_ID, or to auto-create/select per court.
+   */
+  async listLiveStreams(accessToken: string): Promise<LiveStreamInfo[]> {
+    const res = await this.fetchImpl(
+      "https://www.googleapis.com/youtube/v3/liveStreams?part=id,snippet,cdn&mine=true&maxResults=50",
+      { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!res.ok) {
+      throw new Error(
+        `liveStreams lookup failed (${res.status}): ${await res.text()}`,
+      );
+    }
+    const json = (await res.json()) as {
+      items?: Array<{
+        id: string;
+        snippet?: { title?: string };
+        cdn?: { ingestionType?: string; resolution?: string };
+      }>;
+    };
+    return (json.items ?? []).map((it) => ({
+      streamId: it.id,
+      title: it.snippet?.title ?? "(untitled stream)",
+      ingestionType: it.cdn?.ingestionType,
+      resolution: it.cdn?.resolution,
+    }));
   }
 }

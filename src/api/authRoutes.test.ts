@@ -35,7 +35,12 @@ function scriptedFetch(): FetchLike {
     return {
       ok: true,
       status: 200,
-      json: async () => ({ items: [{ id: "UC1", snippet: { title: "BMK Komet" } }] }),
+      json: async () => {
+        if (url.includes("/liveStreams")) {
+          return { items: [{ id: "s-1", snippet: { title: "Komet Court 1" }, cdn: { resolution: "1080p" } }] };
+        }
+        return { items: [{ id: "UC1", snippet: { title: "BMK Komet" } }] };
+      },
       text: async () => "",
     };
   };
@@ -84,6 +89,21 @@ describe("auth routes — status & disconnect", () => {
     const res = await request(ctx.app).post("/api/youtube/disconnect");
     expect(res.body).toEqual({ connected: false });
     expect(ctx.store.isConnected()).toBe(false);
+  });
+
+  it("lists streams when connected", async () => {
+    ctx.store.save({ channelId: "UC1", channelTitle: "BMK Komet", refreshToken: "1//rt" });
+    const res = await request(ctx.app).get("/api/youtube/streams");
+    expect(res.status).toBe(200);
+    expect(res.body.streams).toEqual([
+      { streamId: "s-1", title: "Komet Court 1", ingestionType: undefined, resolution: "1080p" },
+    ]);
+  });
+
+  it("returns 400 for streams when not connected", async () => {
+    const res = await request(ctx.app).get("/api/youtube/streams");
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/not connected/);
   });
 });
 

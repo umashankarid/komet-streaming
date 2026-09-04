@@ -1,3 +1,4 @@
+import { Router } from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { MatchOrchestrator } from "../domain/MatchOrchestrator.js";
@@ -129,5 +130,64 @@ describe("secure cookies behind a TLS-terminating proxy", () => {
       .set("X-Forwarded-Proto", "https")
       .set("Cookie", setCookie);
     expect(authed.status).toBe(200);
+  });
+});
+
+describe("YouTube auth router mounting and guards", () => {
+  function appWithAuthRouter() {
+    const router = Router();
+    router.get("/auth/youtube", (_req, res) => res.redirect("https://google"));
+    router.get("/auth/youtube/callback", (_req, res) => res.redirect("/control?youtube=connected"));
+    router.get("/api/youtube/status", (_req, res) => res.json({ connected: false, configured: true }));
+    router.get("/api/youtube/streams", (_req, res) => res.json({ streams: [] }));
+    router.post("/api/youtube/disconnect", (_req, res) => res.json({ connected: false }));
+    return createApp(new MatchOrchestrator(), {
+      auth: { username: "admin", passwordHash: hashPassword("pw") },
+      sessionSecret: "test-secret",
+      authRouter: router,
+    });
+  }
+
+  async function login(app: ReturnType<typeof appWithAuthRouter>) {
+    const res = await request(app)
+      .post("/login")
+      .type("form")
+      .send({ username: "admin", password: "pw" });
+    return res.headers["set-cookie"];
+  }
+
+  it("redirects unauthenticated /auth/youtube to /login", async () => {
+    const app = appWithAuthRouter();
+    const res = await request(app).get("/auth/youtube");
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe("/login");
+  });
+
+  it("allows /auth/youtube when authenticated", async () => {
+    const app = appWithAuthRouter();
+    const cookie = await login(app);
+    const res = await request(app).get("/auth/youtube").set("Cookie", cookie);
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe("https://google");
+  });
+
+  it("serves /api/youtube/status publicly", async () => {
+    const app = appWithAuthRouter();
+    const res = await request(app).get("/api/youtube/status");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ connected: false, configured: true });
+  });
+
+  it("blocks /api/youtube/streams and /disconnect without auth", async () => {
+    const app = appWithAuthRouter();
+    expect((await request(app).get("/api/youtube/streams")).status).toBe(401);
+    expect((await request(app).post("/api/youtube/disconnect")).status).toBe(401);
+  });
+
+  it("allows /api/youtube/streams and /disconnect when authenticated", async () => {
+    const app = appWithAuthRouter();
+    const cookie = await login(app);
+    expect((await request(app).get("/api/youtube/streams").set("Cookie", cookie)).status).toBe(200);
+    expect((await request(app).post("/api/youtube/disconnect").set("Cookie", cookie)).status).toBe(200);
   });
 });

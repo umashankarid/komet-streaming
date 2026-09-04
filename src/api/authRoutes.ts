@@ -83,6 +83,25 @@ export function createAuthRouter(
     return res.json({ ...store.publicStatus(), configured });
   });
 
+  // List the channel's reusable liveStreams (id + name) to help pick
+  // YOUTUBE_STREAM_ID. Requires a connected account.
+  router.get("/api/youtube/streams", async (_req: Request, res: Response) => {
+    if (!configured || !store) {
+      return res.status(503).json({ error: "YouTube OAuth is not configured" });
+    }
+    const refreshToken = store.getRefreshToken();
+    if (!refreshToken) {
+      return res.status(400).json({ error: "YouTube is not connected" });
+    }
+    try {
+      const { accessToken } = await auth!.refreshAccessToken(refreshToken);
+      const streams = await auth!.listLiveStreams(accessToken);
+      return res.json({ streams });
+    } catch (err) {
+      return res.status(502).json({ error: (err as Error).message });
+    }
+  });
+
   // Disconnect the account.
   router.post("/api/youtube/disconnect", (_req: Request, res: Response) => {
     if (store) store.clear();
