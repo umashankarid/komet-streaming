@@ -68,6 +68,11 @@ export class SqliteStore {
     return orch.onUpdate((courtId, snapshot) => this.save(courtId, snapshot));
   }
 
+  /** The underlying database handle (for sharing with other stores). */
+  get database(): Database.Database {
+    return this.db;
+  }
+
   close(): void {
     this.db.close();
   }

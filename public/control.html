@@ -138,6 +138,9 @@
       <h1>BMK KOMET — CONTROL</h1>
       <span id="conn" class="status">connecting…</span>
       <span style="flex:1"></span>
+      <span id="yt-account" class="status">YouTube: …</span>
+      <button id="yt-connect" style="display:none">Login with YouTube</button>
+      <button id="yt-disconnect" style="display:none">Disconnect</button>
       <a class="link" href="/">Dashboard</a>
       <form method="POST" action="/logout" style="display:inline;margin-left:12px">
         <button type="submit">Sign out</button>
@@ -452,6 +455,60 @@
         streaming.set(snap.courtId, snap);
         renderStreaming(snap.courtId);
       });
+
+      // --- YouTube account (Login with YouTube) ---
+      async function loadYouTubeStatus() {
+        try {
+          const s = await fetch("/api/youtube/status").then((r) => r.json());
+          const label = document.getElementById("yt-account");
+          const connectBtn = document.getElementById("yt-connect");
+          const disconnectBtn = document.getElementById("yt-disconnect");
+          if (!s.configured) {
+            label.textContent = "YouTube: not configured";
+            connectBtn.style.display = "none";
+            disconnectBtn.style.display = "none";
+            return;
+          }
+          if (s.connected) {
+            label.textContent = "YouTube: 🟢 " + (s.channelTitle || "Connected");
+            connectBtn.style.display = "none";
+            disconnectBtn.style.display = "inline-block";
+          } else {
+            label.textContent = "YouTube: ⚪ Not connected";
+            connectBtn.style.display = "inline-block";
+            disconnectBtn.style.display = "none";
+          }
+        } catch (_e) {
+          document.getElementById("yt-account").textContent = "YouTube: —";
+        }
+      }
+
+      document.getElementById("yt-connect").addEventListener("click", () => {
+        window.location.href = "/auth/youtube";
+      });
+      document.getElementById("yt-disconnect").addEventListener("click", async () => {
+        if (!confirm("Disconnect the YouTube account?")) return;
+        await fetch("/api/youtube/disconnect", { method: "POST" });
+        loadYouTubeStatus();
+      });
+
+      // Surface the OAuth callback result, then clean the URL.
+      (function handleYtCallback() {
+        const p = new URLSearchParams(window.location.search).get("youtube");
+        if (!p) return;
+        const messages = {
+          connected: "YouTube connected.",
+          denied: "YouTube connection was cancelled.",
+          badstate: "YouTube connection failed (state mismatch). Try again.",
+          nocode: "YouTube connection failed (no code). Try again.",
+          norefresh: "No refresh token returned. Remove app access in your Google account, then reconnect.",
+          error: "YouTube connection failed. Check server logs.",
+        };
+        if (messages[p]) setTimeout(() => alert(messages[p]), 100);
+        history.replaceState({}, "", "/control");
+      })();
+
+      loadYouTubeStatus();
 
       loadCourts();
     </script>

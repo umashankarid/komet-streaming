@@ -194,4 +194,30 @@ describe("YouTubeApiService", () => {
       /YouTube API POST .* failed \(403\)/,
     );
   });
+
+  it("resolves the refresh token from a provider (dynamic store)", async () => {
+    let token: string | undefined = "1//from-store";
+    const { fn, calls } = fakeFetch([
+      () => ({ access_token: "tok", expires_in: 3600 }),
+      () => ({ id: "b" }),
+      () => ({ id: "b" }),
+    ]);
+    const svc = new YouTubeApiService(
+      { clientId: "c", clientSecret: "s", refreshToken: () => token, streamId: "s9" },
+      fn,
+    );
+    await svc.createBroadcast({ title: "T" });
+    expect((calls[0].init as { body: string }).body).toContain("refresh_token=1%2F%2Ffrom-store");
+  });
+
+  it("throws when the token provider yields nothing (not connected)", async () => {
+    const { fn } = fakeFetch([() => ({})]);
+    const svc = new YouTubeApiService(
+      { clientId: "c", clientSecret: "s", refreshToken: () => undefined, streamId: "s9" },
+      fn,
+    );
+    await expect(svc.createBroadcast({ title: "T" })).rejects.toThrow(
+      /not connected/,
+    );
+  });
 });

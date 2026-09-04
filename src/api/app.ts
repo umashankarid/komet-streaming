@@ -31,6 +31,8 @@ export interface AppOptions {
   trustProxy?: boolean;
   /** Optional YouTube integration; defaults to a no-op when omitted. */
   youtube?: YouTubeService;
+  /** Optional router for the "Login with YouTube" OAuth flow. */
+  authRouter?: import("express").Router;
 }
 
 /** True if the request carries a valid authenticated session. */
@@ -87,6 +89,28 @@ export function createApp(orch: MatchOrchestrator, opts: AppOptions): Express {
     req.session = null;
     res.redirect("/login");
   });
+
+  // --- "Login with YouTube" OAuth routes (optional) ---
+  if (opts.authRouter) {
+    // Only a logged-in operator may initiate/return from the OAuth flow. The
+    // /api/youtube/* paths inside the router are additionally covered by the
+    // /api auth guard below (disconnect is a POST → requires auth).
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (
+        (req.path === "/auth/youtube" ||
+          req.path === "/auth/youtube/callback") &&
+        !isAuthed(req)
+      ) {
+        return res.redirect("/login");
+      }
+      // Mutating YouTube account actions require auth (status GET is public).
+      if (req.path === "/api/youtube/disconnect" && !isAuthed(req)) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      return next();
+    });
+    app.use(opts.authRouter);
+  }
 
   // --- API: reads are public (overlays need them), writes require auth ---
   const requireApiAuth = (req: Request, res: Response, next: NextFunction) => {

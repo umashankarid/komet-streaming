@@ -54,7 +54,12 @@ export type FetchLike = (
 export interface YouTubeConfig {
   clientId: string;
   clientSecret: string;
-  refreshToken: string;
+  /**
+   * Refresh token source. Either a static string, or a provider that returns
+   * the current token (e.g. reading from the encrypted token store, so a
+   * "Login with YouTube" reconnect is picked up without a restart).
+   */
+  refreshToken: string | (() => string | undefined);
   /** The channel's persistent stream id to bind broadcasts to. */
   streamId: string;
   /** Default privacy for new broadcasts. */
@@ -66,24 +71,34 @@ export interface YouTubeConfig {
  * service when all required vars are present, otherwise a no-op fallback.
  *
  * Required for the real service:
- *   YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN,
- *   YOUTUBE_STREAM_ID
+ *   YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_STREAM_ID and a refresh
+ *   token — either from YOUTUBE_REFRESH_TOKEN or supplied by getRefreshToken
+ *   (the encrypted token store populated by "Login with YouTube").
  * Optional: YOUTUBE_PRIVACY (public|unlisted|private, default "unlisted")
  */
 export function youTubeServiceFromEnv(
   env: NodeJS.ProcessEnv = process.env,
   fetchImpl?: FetchLike,
+  getRefreshToken?: () => string | undefined,
 ): YouTubeService {
   const clientId = env.YOUTUBE_CLIENT_ID;
   const clientSecret = env.YOUTUBE_CLIENT_SECRET;
-  const refreshToken = env.YOUTUBE_REFRESH_TOKEN;
   const streamId = env.YOUTUBE_STREAM_ID;
-  if (!clientId || !clientSecret || !refreshToken || !streamId) {
+  // Token source: prefer the dynamic store, fall back to a static env token.
+  const envToken = env.YOUTUBE_REFRESH_TOKEN;
+  const tokenProvider: () => string | undefined = getRefreshToken
+    ? () => getRefreshToken() ?? envToken
+    : () => envToken;
+
+  // Client credentials + stream id are the fixed requirements. The refresh
+  // token can arrive later via the OAuth login, so we still return the real
+  // service (it errors only if used before a token exists).
+  if (!clientId || !clientSecret || !streamId) {
     return new NoopYouTubeService();
   }
   const privacy = normalizePrivacy(env.YOUTUBE_PRIVACY);
   return new YouTubeApiService(
-    { clientId, clientSecret, refreshToken, streamId, privacy },
+    { clientId, clientSecret, refreshToken: tokenProvider, streamId, privacy },
     fetchImpl,
   );
 }
@@ -134,6 +149,18 @@ export class YouTubeApiService implements YouTubeService {
     this.fetchImpl = f;
   }
 
+  /** Resolve the current refresh token from a static value or provider. */
+  private resolveRefreshToken(): string {
+    const rt =
+      typeof this.cfg.refreshToken === "function"
+        ? this.cfg.refreshToken()
+        : this.cfg.refreshToken;
+    if (!rt) {
+      throw new Error("YouTube not connected: no refresh token available");
+    }
+    return rt;
+  }
+
   /** Exchange the refresh token for an access token, cached until expiry. */
   private async getAccessToken(now: number = Date.now()): Promise<string> {
     if (this.accessToken && now < this.accessTokenExpiry) {
@@ -142,7 +169,7 @@ export class YouTubeApiService implements YouTubeService {
     const body = new URLSearchParams({
       client_id: this.cfg.clientId,
       client_secret: this.cfg.clientSecret,
-      refresh_token: this.cfg.refreshToken,
+      refresh_token: this.resolveRefreshToken(),
       grant_type: "refresh_token",
     }).toString();
     const res = await this.fetchImpl(OAUTH_TOKEN_URL, {
