@@ -17,7 +17,12 @@ export class SqliteStore {
       fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     }
     this.db = new Database(dbPath);
+    // WAL improves concurrent read/write; busy_timeout avoids SQLITE_BUSY
+    // errors when a write is briefly locked; foreign_keys enforces integrity
+    // for future related tables (matches/history).
     this.db.pragma("journal_mode = WAL");
+    this.db.pragma("busy_timeout = 5000");
+    this.db.pragma("foreign_keys = ON");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS court_state (
         court_id   INTEGER PRIMARY KEY,
@@ -51,6 +56,11 @@ export class SqliteStore {
       .prepare(`SELECT snapshot FROM court_state ORDER BY court_id`)
       .all() as { snapshot: string }[];
     return rows.map((r) => JSON.parse(r.snapshot) as MatchSnapshot);
+  }
+
+  /** Read a PRAGMA value (used to verify durability/config settings). */
+  pragma(name: string): unknown {
+    return this.db.pragma(name, { simple: true });
   }
 
   /** Subscribe the store to an orchestrator so every update is persisted. */

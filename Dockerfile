@@ -40,7 +40,8 @@ VOLUME ["/app/data"]
 
 ENV PORT=3000 \
     COURT_COUNT=4 \
-    DB_PATH=/app/data/komet.db
+    DB_PATH=/app/data/komet.db \
+    TZ=Europe/Stockholm
 
 EXPOSE 3000
 

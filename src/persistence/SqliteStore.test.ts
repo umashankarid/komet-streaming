@@ -53,4 +53,12 @@ describe("SqliteStore", () => {
     orch.createMatch({ courtId: 1, ...teams });
     expect(store.loadAll().map((s) => s.courtId)).toEqual([1, 3]);
   });
+
+  it("applies durability pragmas (busy_timeout, foreign_keys)", () => {
+    // WAL is not available for :memory: dbs, but busy_timeout and
+    // foreign_keys are and must be set for tournament durability.
+    store = new SqliteStore(":memory:");
+    expect(store.pragma("busy_timeout")).toBe(5000);
+    expect(store.pragma("foreign_keys")).toBe(1);
+  });
 });
