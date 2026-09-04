@@ -8,6 +8,7 @@ import express, {
   type Response,
 } from "express";
 import type { MatchOrchestrator } from "../domain/MatchOrchestrator.js";
+import type { YouTubeService } from "../integrations/YouTubeService.js";
 import { type AuthConfig, checkCredentials } from "./auth.js";
 import { createApiRouter } from "./router.js";
 
@@ -28,6 +29,8 @@ export interface AppOptions {
    * Secure cookie would be silently dropped behind an HTTP proxy hop.
    */
   trustProxy?: boolean;
+  /** Optional YouTube integration; defaults to a no-op when omitted. */
+  youtube?: YouTubeService;
 }
 
 /** True if the request carries a valid authenticated session. */
@@ -90,7 +93,7 @@ export function createApp(orch: MatchOrchestrator, opts: AppOptions): Express {
     if (req.method === "GET" || isAuthed(req)) return next();
     return res.status(401).json({ error: "Authentication required" });
   };
-  app.use("/api", requireApiAuth, createApiRouter(orch));
+  app.use("/api", requireApiAuth, createApiRouter(orch, opts.youtube));
 
   // --- Public overlay (OBS browser source cannot authenticate) ---
   app.get("/overlay/court/:id", (_req, res) =>

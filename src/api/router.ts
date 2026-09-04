@@ -2,6 +2,10 @@ import { Router, type Request, type Response } from "express";
 import type { MatchOrchestrator } from "../domain/MatchOrchestrator.js";
 import { OVERLAY_MODES, type OverlayMode } from "../domain/Streaming.js";
 import {
+  NoopYouTubeService,
+  type YouTubeService,
+} from "../integrations/YouTubeService.js";
+import {
   DEFAULT_SCORING,
   type ScoringConfig,
   type Side,
@@ -89,7 +93,10 @@ export class HttpError extends Error {
  * Builds the REST router. Controllers stay thin: parse/validate input, call the
  * orchestrator, return the resulting snapshot. All logic lives in the domain.
  */
-export function createApiRouter(orch: MatchOrchestrator): Router {
+export function createApiRouter(
+  orch: MatchOrchestrator,
+  youtube: YouTubeService = new NoopYouTubeService(),
+): Router {
   const router = Router();
 
   const handle = (fn: (req: Request, res: Response) => void) => {
@@ -100,6 +107,18 @@ export function createApiRouter(orch: MatchOrchestrator): Router {
         const status = err instanceof HttpError ? err.status : 400;
         res.status(status).json({ error: (err as Error).message });
       }
+    };
+  };
+
+  // Async variant for routes that call external services (YouTube).
+  const handleAsync = (
+    fn: (req: Request, res: Response) => Promise<void>,
+  ) => {
+    return (req: Request, res: Response) => {
+      fn(req, res).catch((err) => {
+        const status = err instanceof HttpError ? err.status : 400;
+        res.status(status).json({ error: (err as Error).message });
+      });
     };
   };
 
@@ -255,10 +274,13 @@ export function createApiRouter(orch: MatchOrchestrator): Router {
   );
 
   // Begin the start sequence (idle/error -> starting). Title is optional; when
-  // omitted an auto-generated title from match info is used.
+  // omitted an auto-generated title from match info is used. When YouTube is
+  // configured, this creates a real broadcast and transitions it live; the
+  // returned snapshot is then "live". With no credentials, it falls back to a
+  // placeholder broadcast so the UI/state still works.
   router.post(
     "/courts/:courtId/streaming/start",
-    handle((req, res) => {
+    handleAsync(async (req, res) => {
       const courtId = parseCourtId(req);
       const title =
         typeof req.body?.title === "string" ? req.body.title : undefined;
@@ -266,11 +288,26 @@ export function createApiRouter(orch: MatchOrchestrator): Router {
         req.body?.overlayMode === undefined
           ? undefined
           : parseOverlayMode(req.body.overlayMode);
-      res.json(orch.requestStreamStart(courtId, { title, overlayMode }));
+      // Enter "starting" first so the state machine validates the transition
+      // and the UI reflects progress.
+      const starting = orch.requestStreamStart(courtId, { title, overlayMode });
+      try {
+        const handle = await youtube.createBroadcast({
+          title: starting.title ?? orch.suggestTitle(courtId),
+        });
+        await youtube.transitionToLive(handle.broadcastId);
+        res.json(orch.confirmStreamLive(courtId, handle.broadcastId));
+      } catch (err) {
+        res.status(502).json({
+          error: `YouTube start failed: ${(err as Error).message}`,
+          streaming: orch.failStream(courtId, (err as Error).message),
+        });
+      }
     }),
   );
 
-  // Confirm the YouTube broadcast is live (starting -> live).
+  // Confirm the YouTube broadcast is live (starting -> live). Used when the
+  // live transition is driven externally rather than by the start route.
   router.post(
     "/courts/:courtId/streaming/live",
     handle((req, res) => {
@@ -281,11 +318,26 @@ export function createApiRouter(orch: MatchOrchestrator): Router {
     }),
   );
 
-  // Begin the stop sequence (live -> stopping).
+  // Begin the stop sequence (live -> stopping) and complete the broadcast.
   router.post(
     "/courts/:courtId/streaming/stop",
-    handle((req, res) => {
-      res.json(orch.requestStreamStop(parseCourtId(req)));
+    handleAsync(async (req, res) => {
+      const courtId = parseCourtId(req);
+      const current = orch.streamingSnapshot(courtId);
+      const stopping = orch.requestStreamStop(courtId);
+      try {
+        if (current.broadcastId) {
+          await youtube.completeBroadcast(current.broadcastId);
+        }
+        res.json(orch.confirmStreamStopped(courtId));
+      } catch (err) {
+        // Completing failed, but locally we still stop; surface the error.
+        res.status(502).json({
+          error: `YouTube stop failed: ${(err as Error).message}`,
+          streaming: orch.confirmStreamStopped(courtId),
+          hadStopping: stopping.youtubeStatus,
+        });
+      }
     }),
   );
 

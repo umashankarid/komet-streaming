@@ -185,24 +185,20 @@ describe("REST API", () => {
     });
 
     it("runs the full start -> live -> stop -> stopped flow", async () => {
+      // With the no-op YouTube fallback, /start creates a placeholder
+      // broadcast and transitions straight to live in one call.
       const start = await request(app)
         .post("/api/courts/1/streaming/start")
         .send({ title: "Komet | A vs B", overlayMode: "full" });
       expect(start.status).toBe(200);
-      expect(start.body.youtubeStatus).toBe("starting");
+      expect(start.body.youtubeStatus).toBe("live");
       expect(start.body.title).toBe("Komet | A vs B");
-
-      const live = await request(app)
-        .post("/api/courts/1/streaming/live")
-        .send({ broadcastId: "yt-42" });
-      expect(live.body.youtubeStatus).toBe("live");
-      expect(live.body.broadcastId).toBe("yt-42");
+      expect(start.body.overlayMode).toBe("full");
+      expect(start.body.broadcastId).toMatch(/^noop-/);
 
       const stop = await request(app).post("/api/courts/1/streaming/stop");
-      expect(stop.body.youtubeStatus).toBe("stopping");
-
-      const stopped = await request(app).post("/api/courts/1/streaming/stopped");
-      expect(stopped.body.youtubeStatus).toBe("idle");
+      expect(stop.status).toBe(200);
+      expect(stop.body.youtubeStatus).toBe("idle");
     });
 
     it("auto-generates the title on start when omitted", async () => {
@@ -210,6 +206,7 @@ describe("REST API", () => {
         .post("/api/courts/2/match")
         .send({ ...teams, banner: "Final" });
       const start = await request(app).post("/api/courts/2/streaming/start").send({});
+      expect(start.body.youtubeStatus).toBe("live");
       expect(start.body.title).toBe("Final | A. Home vs B. Away | Court 2");
     });
 
@@ -238,5 +235,62 @@ describe("REST API", () => {
       const court1 = res.body.find((c: { id: number }) => c.id === 1);
       expect(court1.streaming).toMatchObject({ courtId: 1, cameraConnected: true });
     });
+  });
+});
+
+describe("streaming routes with a YouTube service", () => {
+  function appWith(youtube: import("../integrations/YouTubeService.js").YouTubeService) {
+    const a = express();
+    a.use(express.json());
+    a.use("/api", createApiRouter(new MatchOrchestrator(), youtube));
+    return a;
+  }
+
+  it("creates a real broadcast and returns live with its id", async () => {
+    const calls: string[] = [];
+    const youtube = {
+      enabled: true,
+      async createBroadcast(p: { title: string }) {
+        calls.push("create:" + p.title);
+        return { broadcastId: "yt-777", watchUrl: "u" };
+      },
+      async transitionToLive(id: string) {
+        calls.push("live:" + id);
+      },
+      async completeBroadcast(id: string) {
+        calls.push("complete:" + id);
+      },
+    };
+    const app = appWith(youtube);
+    const start = await request(app)
+      .post("/api/courts/1/streaming/start")
+      .send({ title: "Komet Final" });
+    expect(start.status).toBe(200);
+    expect(start.body.youtubeStatus).toBe("live");
+    expect(start.body.broadcastId).toBe("yt-777");
+    expect(calls).toEqual(["create:Komet Final", "live:yt-777"]);
+
+    const stop = await request(app).post("/api/courts/1/streaming/stop");
+    expect(stop.status).toBe(200);
+    expect(stop.body.youtubeStatus).toBe("idle");
+    expect(calls).toContain("complete:yt-777");
+  });
+
+  it("marks the stream errored and returns 502 when YouTube start fails", async () => {
+    const youtube = {
+      enabled: true,
+      async createBroadcast() {
+        throw new Error("quotaExceeded");
+      },
+      async transitionToLive() {},
+      async completeBroadcast() {},
+    };
+    const app = appWith(youtube);
+    const start = await request(app)
+      .post("/api/courts/1/streaming/start")
+      .send({ title: "T" });
+    expect(start.status).toBe(502);
+    expect(start.body.error).toMatch(/quotaExceeded/);
+    expect(start.body.streaming.youtubeStatus).toBe("error");
   });
 });

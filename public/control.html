@@ -420,20 +420,14 @@
           const title = titleInput ? titleInput.value.trim() : "";
           const sel = document.querySelector('input[name="ov-' + id + '"]:checked');
           const overlayMode = sel ? sel.value : undefined;
-          const snap = await api("/courts/" + id + "/streaming/start", {
+          // Server creates the YouTube broadcast (or falls back) and returns
+          // the live snapshot in one call.
+          await api("/courts/" + id + "/streaming/start", {
             title: title || undefined,
             overlayMode,
           });
-          // MVP: no YouTube backend yet, so immediately confirm "live" so the
-          // operator sees the live state and duration timer. (Step D will
-          // replace this with a real broadcast id from the YouTube API.)
-          await api("/courts/" + id + "/streaming/live", {
-            broadcastId: "manual-" + id + "-" + Date.now(),
-          });
         } else if (t.dataset.streamStop) {
-          const id = t.dataset.streamStop;
-          await api("/courts/" + id + "/streaming/stop", {});
-          await api("/courts/" + id + "/streaming/stopped", {});
+          await api("/courts/" + t.dataset.streamStop + "/streaming/stop", {});
         } else if (t.dataset.suggest) {
           const id = t.dataset.suggest;
           const { title } = await api("/courts/" + id + "/streaming/suggest-title");
