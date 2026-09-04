@@ -15,10 +15,21 @@ export interface GatewayStartResult {
   rtmpUrl?: string;
 }
 
+export interface GatewayCourtStatus {
+  courtId: number;
+  running: boolean;
+  connected: boolean;
+  srtPort?: number;
+  lastSeenAt?: number;
+  media?: { width?: number; height?: number; fps?: number; bitrateKbps?: number };
+}
+
 export interface MediaGateway {
   readonly enabled: boolean;
   startCourt(courtId: number, rtmpUrl: string): Promise<GatewayStartResult>;
   stopCourt(courtId: number): Promise<{ ok: boolean; stopped?: boolean }>;
+  /** All running courts' status (camera connectivity, media). */
+  getStatus(): Promise<GatewayCourtStatus[]>;
 }
 
 /** No-op gateway used when GATEWAY_URL is not configured. */
@@ -29,6 +40,9 @@ export class NoopMediaGateway implements MediaGateway {
   }
   async stopCourt(): Promise<{ ok: boolean; stopped?: boolean }> {
     return { ok: true, stopped: false };
+  }
+  async getStatus(): Promise<GatewayCourtStatus[]> {
+    return [];
   }
 }
 
@@ -85,6 +99,18 @@ export class MediaGatewayClient implements MediaGateway {
       );
     }
     return (await res.json()) as { ok: boolean; stopped?: boolean };
+  }
+
+  async getStatus(): Promise<GatewayCourtStatus[]> {
+    const res = await this.fetchImpl(`${this.baseUrl}/status`, {
+      method: "GET",
+      headers: this.headers(),
+    });
+    if (!res.ok) {
+      throw new Error(`Gateway status failed (${res.status}): ${await res.text()}`);
+    }
+    const body = (await res.json()) as { courts?: GatewayCourtStatus[] };
+    return body.courts ?? [];
   }
 }
 

@@ -7,6 +7,7 @@ import { CourtService } from "./domain/Court.js";
 import { MatchOrchestrator } from "./domain/MatchOrchestrator.js";
 import { youTubeServiceFromEnv } from "./integrations/YouTubeService.js";
 import { mediaGatewayFromEnv } from "./streaming/MediaGatewayClient.js";
+import { CameraPoller } from "./streaming/CameraPoller.js";
 import { SqliteStore } from "./persistence/SqliteStore.js";
 import { YouTubeAuthService } from "./youtube/YouTubeAuthService.js";
 import { YouTubeTokenStore } from "./youtube/YouTubeTokenStore.js";
@@ -72,6 +73,12 @@ const app = createApp(orch, {
 });
 const httpServer = createServer(app);
 attachSockets(httpServer, orch);
+
+// Poll the gateway for per-court camera/ingest status and push it into the
+// orchestrator (broadcast over WebSocket) so /control shows live camera state.
+if (gateway.enabled) {
+  new CameraPoller({ orch, gateway, courtCount: COURT_COUNT }).start();
+}
 
 httpServer.listen(PORT, () => {
   // eslint-disable-next-line no-console

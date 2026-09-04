@@ -124,8 +124,12 @@ export class MatchOrchestrator {
   }
 
   /** Report SRT camera connectivity for a court. */
-  setCameraConnected(courtId: number, connected: boolean): StreamingSnapshot {
-    this.ensureCourt(courtId).streaming.setCameraConnected(connected);
+  setCameraConnected(
+    courtId: number,
+    connected: boolean,
+    media?: { width?: number; height?: number; fps?: number; bitrateKbps?: number },
+  ): StreamingSnapshot {
+    this.ensureCourt(courtId).streaming.setCameraConnected(connected, media);
     return this.emitStreaming(courtId);
   }
 

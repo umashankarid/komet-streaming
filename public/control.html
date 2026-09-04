@@ -290,7 +290,15 @@
         };
         const live = st.youtubeStatus === "live";
         const busy = st.youtubeStatus === "starting" || st.youtubeStatus === "stopping";
-        const cam = st.cameraConnected ? "🟢 SRT connected" : "⚪ No camera";
+        let cam = st.cameraConnected ? "🟢 SRT connected" : "⚪ No camera";
+        if (st.cameraConnected && st.camera) {
+          const c = st.camera;
+          const parts = [];
+          if (c.width && c.height) parts.push(c.width + "×" + c.height);
+          if (c.fps) parts.push(c.fps + " fps");
+          if (c.bitrateKbps) parts.push((c.bitrateKbps / 1000).toFixed(1) + " Mbps");
+          if (parts.length) cam += " (" + parts.join(" / ") + ")";
+        }
         // Preserve the operator's in-progress title edit across re-renders.
         const existingInput = sc.querySelector(".yt-title");
         const titleVal =
@@ -420,6 +428,14 @@
           await api("/courts/" + id + "/match/ticker", { text });
         } else if (t.dataset.streamStart) {
           const id = t.dataset.streamStart;
+          const st = streaming.get(Number(id));
+          if (!st || !st.cameraConnected) {
+            if (!confirm(
+              "No camera signal detected for Court " + id + ".\n\n" +
+              "The YouTube broadcast will be created but won't go live until " +
+              "the phone starts sending video. Start anyway?"
+            )) return;
+          }
           const titleInput = document.getElementById("yt-" + id);
           const title = titleInput ? titleInput.value.trim() : "";
           const sel = document.querySelector('input[name="ov-' + id + '"]:checked');

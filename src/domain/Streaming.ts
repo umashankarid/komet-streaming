@@ -35,6 +35,13 @@ export interface StreamingSnapshot {
   courtId: number;
   /** True when a phone/SRT camera feed is connected to this court's gateway. */
   cameraConnected: boolean;
+  /** Camera media info when known (from the gateway's FFmpeg ingest). */
+  camera?: {
+    width?: number;
+    height?: number;
+    fps?: number;
+    bitrateKbps?: number;
+  };
   youtubeStatus: YoutubeStatus;
   /** YouTube broadcast id, once created. */
   broadcastId?: string;
@@ -104,6 +111,12 @@ export function generateTitle(
 export class CourtStreaming {
   readonly courtId: number;
   private cameraConnected = false;
+  private camera?: {
+    width?: number;
+    height?: number;
+    fps?: number;
+    bitrateKbps?: number;
+  };
   private status: YoutubeStatus = "idle";
   private broadcastId?: string;
   private title?: string;
@@ -129,8 +142,12 @@ export class CourtStreaming {
   }
 
   /** Report camera (SRT) connectivity for this court's gateway. */
-  setCameraConnected(connected: boolean): void {
+  setCameraConnected(
+    connected: boolean,
+    media?: { width?: number; height?: number; fps?: number; bitrateKbps?: number },
+  ): void {
     this.cameraConnected = Boolean(connected);
+    this.camera = connected ? media : undefined;
   }
 
   /** Choose the overlay mode. Only allowed before the stream starts. */
@@ -240,6 +257,7 @@ export class CourtStreaming {
     return {
       courtId: this.courtId,
       cameraConnected: this.cameraConnected,
+      camera: this.camera,
       youtubeStatus: this.status,
       broadcastId: this.broadcastId,
       title: this.title,

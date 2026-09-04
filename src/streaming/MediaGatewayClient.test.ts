@@ -86,4 +86,26 @@ describe("MediaGatewayClient", () => {
     const g = new MediaGatewayClient({ baseUrl: "http://gw:8080" }, fn);
     await expect(g.stopCourt(1)).rejects.toThrow(/Gateway stop court 1 failed \(503\)/);
   });
+
+  it("gets status and unwraps the courts array", async () => {
+    const { fn, calls } = fakeFetch({
+      courts: [{ courtId: 1, running: true, connected: true }],
+    });
+    const g = new MediaGatewayClient({ baseUrl: "http://gw:8080", token: "t" }, fn);
+    const status = await g.getStatus();
+    expect(status).toEqual([{ courtId: 1, running: true, connected: true }]);
+    expect(calls[0].url).toBe("http://gw:8080/status");
+  });
+
+  it("returns an empty array when status has no courts", async () => {
+    const { fn } = fakeFetch({});
+    const g = new MediaGatewayClient({ baseUrl: "http://gw:8080" }, fn);
+    expect(await g.getStatus()).toEqual([]);
+  });
+
+  it("throws on a non-ok status response", async () => {
+    const { fn } = fakeFetch({}, false, 500);
+    const g = new MediaGatewayClient({ baseUrl: "http://gw:8080" }, fn);
+    await expect(g.getStatus()).rejects.toThrow(/Gateway status failed \(500\)/);
+  });
 });

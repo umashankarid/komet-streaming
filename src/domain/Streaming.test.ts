@@ -96,6 +96,19 @@ describe("CourtStreaming", () => {
     expect(s.isCameraConnected()).toBe(false);
   });
 
+  it("stores camera media when connected and clears it when disconnected", () => {
+    const s = new CourtStreaming(1);
+    s.setCameraConnected(true, { width: 1920, height: 1080, fps: 30, bitrateKbps: 6000 });
+    expect(s.snapshot().camera).toEqual({
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      bitrateKbps: 6000,
+    });
+    s.setCameraConnected(false, { width: 1920, height: 1080 });
+    expect(s.snapshot().camera).toBeUndefined();
+  });
+
   it("sets overlay mode and title while idle", () => {
     const s = new CourtStreaming(1);
     for (const mode of OVERLAY_MODES) {
