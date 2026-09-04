@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Komet Control</title>
+    <style>
+      :root {
+        --bg: #0b1628;
+        --panel: #13233d;
+        --line: #21344f;
+        --home: #ffd200;
+        --away: #00b3ff;
+        --ok: #37d67a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: #e8eef6;
+        font-family: "Segoe UI", Roboto, Arial, sans-serif;
+      }
+      header {
+        padding: 16px 24px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      header h1 {
+        font-size: 18px;
+        margin: 0;
+        letter-spacing: 1px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+        gap: 16px;
+        padding: 24px;
+      }
+      .court {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 16px;
+      }
+      .court h2 {
+        margin: 0 0 4px;
+        font-size: 16px;
+      }
+      .status {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #9fb3c8;
+        margin-bottom: 12px;
+      }
+      .side {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 0;
+      }
+      .side .label {
+        font-weight: 600;
+      }
+      .side.home .swatch {
+        background: var(--home);
+      }
+      .side.away .swatch {
+        background: var(--away);
+      }
+      .swatch {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        margin-right: 8px;
+      }
+      .pts {
+        font-size: 26px;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        min-width: 42px;
+        text-align: center;
+      }
+      .controls {
+        display: flex;
+        gap: 8px;
+      }
+      button {
+        cursor: pointer;
+        border: 1px solid var(--line);
+        background: #1c3358;
+        color: #fff;
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 14px;
+      }
+      button:hover {
+        border-color: #3a5c8f;
+      }
+      button.primary {
+        background: var(--ok);
+        color: #06210f;
+        border-color: transparent;
+        font-weight: 700;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 14px;
+        flex-wrap: wrap;
+      }
+      .setup {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .setup input {
+        background: #0d1b31;
+        border: 1px solid var(--line);
+        color: #fff;
+        border-radius: 6px;
+        padding: 8px;
+      }
+      a.link {
+        color: #7fc0ff;
+        font-size: 12px;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>BMK KOMET — CONTROL</h1>
+      <span id="conn" class="status">connecting…</span>
+    </header>
+    <div id="grid" class="grid"></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const socket = io();
+      const state = new Map(); // courtId -> snapshot
+      const teamName = (t) =>
+        (t?.players || []).map((p) => p.name).join(" / ") || "—";
+
+      async function api(path, body) {
+        const res = await fetch("/api" + path, {
+          method: body ? "POST" : "GET",
+          headers: { "Content-Type": "application/json" },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        if (!res.ok) {
+          const e = await res.json().catch(() => ({}));
+          alert(e.error || res.statusText);
+          throw new Error(e.error || res.statusText);
+        }
+        return res.json();
+      }
+
+      async function loadCourts() {
+        const courts = await api("/courts");
+        // Ensure at least 4 courts are visible for setup.
+        const ids = new Set(courts.map((c) => c.id));
+        for (let i = 1; i <= 4; i++) ids.add(i);
+        [...ids]
+          .sort((a, b) => a - b)
+          .forEach((id) => {
+            const c = courts.find((x) => x.id === id);
+            if (c?.match) state.set(id, c.match);
+            renderCourt(id);
+            socket.emit("join-court", id);
+          });
+      }
+
+      function el(html) {
+        const t = document.createElement("template");
+        t.innerHTML = html.trim();
+        return t.content.firstChild;
+      }
+
+      function renderCourt(courtId) {
+        const snap = state.get(courtId);
+        const existing = document.getElementById("court-" + courtId);
+        const node = existing || el('<div class="court" id="court-' + courtId + '"></div>');
+
+        if (!snap) {
+          node.innerHTML =
+            '<h2>Court ' + courtId + "</h2>" +
+            '<div class="status">no match</div>' +
+            '<div class="setup">' +
+            '<input id="h-' + courtId + '" placeholder="Home player(s)" />' +
+            '<input id="a-' + courtId + '" placeholder="Away player(s)" />' +
+            "</div>" +
+            '<div class="actions"><button class="primary" data-create="' +
+            courtId + '">Create match</button></div>';
+        } else {
+          node.innerHTML =
+            '<h2>Court ' + courtId +
+            ' <a class="link" href="/overlay/court/' + courtId +
+            '" target="_blank">overlay</a> ' +
+            '<a class="link" href="/score/' + courtId +
+            '" target="_blank">score</a></h2>' +
+            '<div class="status">' + snap.status +
+            " · games " + snap.gamesWon.home + "–" + snap.gamesWon.away +
+            (snap.matchWinner ? " · winner: " + snap.matchWinner : "") +
+            "</div>" +
+            sideRow(courtId, "home", snap) +
+            sideRow(courtId, "away", snap) +
+            '<div class="actions">' +
+            (snap.status === "scheduled"
+              ? '<button class="primary" data-start="' + courtId + '">Start</button>'
+              : "") +
+            (snap.status === "live"
+              ? '<button data-next="' + courtId + '">Next game</button>'
+              : "") +
+            "</div>";
+        }
+        if (!existing) document.getElementById("grid").appendChild(node);
+      }
+
+      function sideRow(courtId, side, snap) {
+        return (
+          '<div class="side ' + side + '">' +
+          '<span class="label"><span class="swatch"></span>' +
+          teamName(snap[side]) + "</span>" +
+          '<span class="pts">' + snap.currentGame[side] + "</span>" +
+          '<span class="controls">' +
+          '<button data-point="' + courtId + '" data-side="' + side + '">+1</button>' +
+          '<button data-correct="' + courtId + '" data-side="' + side + '">−1</button>' +
+          "</span></div>"
+        );
+      }
+
+      document.addEventListener("click", async (e) => {
+        const t = e.target;
+        if (t.dataset.create) {
+          const id = Number(t.dataset.create);
+          const home = document.getElementById("h-" + id).value || "Home";
+          const away = document.getElementById("a-" + id).value || "Away";
+          await api("/courts/" + id + "/match", {
+            home: { players: [{ name: home }] },
+            away: { players: [{ name: away }] },
+          });
+        } else if (t.dataset.start) {
+          await api("/courts/" + t.dataset.start + "/match/start", {});
+        } else if (t.dataset.point) {
+          await api("/courts/" + t.dataset.point + "/match/point", {
+            side: t.dataset.side,
+          });
+        } else if (t.dataset.correct) {
+          await api("/courts/" + t.dataset.correct + "/match/correct", {
+            side: t.dataset.side,
+          });
+        } else if (t.dataset.next) {
+          await api("/courts/" + t.dataset.next + "/match/next-game", {});
+        }
+      });
+
+      socket.on("connect", () => {
+        document.getElementById("conn").textContent = "connected";
+      });
+      socket.on("disconnect", () => {
+        document.getElementById("conn").textContent = "disconnected";
+      });
+      socket.on("court:update", (snap) => {
+        state.set(snap.courtId, snap);
+        renderCourt(snap.courtId);
+      });
+
+      loadCourts();
+    </script>
+  </body>
+</html>

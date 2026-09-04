@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Komet Score</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #06101f;
+        color: #fff;
+        font-family: "Segoe UI", Roboto, Arial, sans-serif;
+      }
+      .wrap {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+      }
+      .court {
+        color: #9fb3c8;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        font-size: 20px;
+        margin-bottom: 24px;
+      }
+      .side {
+        display: grid;
+        grid-template-columns: 1fr 120px 200px;
+        align-items: center;
+        width: min(1100px, 92vw);
+        padding: 20px 28px;
+        border-radius: 12px;
+        margin: 10px 0;
+        background: #10233f;
+      }
+      .side.home {
+        border-left: 10px solid #ffd200;
+      }
+      .side.away {
+        border-left: 10px solid #00b3ff;
+      }
+      .name {
+        font-size: 42px;
+        font-weight: 700;
+      }
+      .games {
+        font-size: 34px;
+        color: #ffd200;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+      }
+      .pts {
+        font-size: 96px;
+        font-weight: 900;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      .side.win {
+        outline: 3px solid #37d67a;
+      }
+      .status {
+        margin-top: 22px;
+        color: #9fb3c8;
+        font-size: 16px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="court" id="court">Court</div>
+      <div class="side home" id="home">
+        <div class="name" id="home-name">—</div>
+        <div class="games" id="home-games">0</div>
+        <div class="pts" id="home-pts">0</div>
+      </div>
+      <div class="side away" id="away">
+        <div class="name" id="away-name">—</div>
+        <div class="games" id="away-games">0</div>
+        <div class="pts" id="away-pts">0</div>
+      </div>
+      <div class="status" id="status">waiting…</div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const courtId = Number(location.pathname.split("/").pop()) || 1;
+      const $ = (id) => document.getElementById(id);
+      const teamName = (t) =>
+        (t?.players || []).map((p) => p.name).join(" / ") || "—";
+
+      function render(snap) {
+        $("court").textContent = "Court " + courtId;
+        if (!snap) {
+          $("status").textContent = "no match";
+          return;
+        }
+        $("home-name").textContent = teamName(snap.home);
+        $("away-name").textContent = teamName(snap.away);
+        $("home-games").textContent = snap.gamesWon.home;
+        $("away-games").textContent = snap.gamesWon.away;
+        $("home-pts").textContent = snap.currentGame.home;
+        $("away-pts").textContent = snap.currentGame.away;
+        $("home").classList.toggle("win", snap.matchWinner === "home");
+        $("away").classList.toggle("win", snap.matchWinner === "away");
+        $("status").textContent = snap.matchWinner
+          ? "match won by " + snap.matchWinner
+          : snap.status;
+      }
+
+      fetch("/api/courts/" + courtId + "/match")
+        .then((r) => (r.ok ? r.json() : null))
+        .then(render)
+        .catch(() => {});
+
+      const socket = io();
+      socket.on("connect", () => socket.emit("join-court", courtId));
+      socket.on("court:update", render);
+    </script>
+  </body>
+</html>
