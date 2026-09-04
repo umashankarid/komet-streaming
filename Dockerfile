@@ -4,13 +4,18 @@
 FROM node:20-bookworm-slim AS build
 WORKDIR /app
 
+# Force a dev install here even if NODE_ENV=production is injected at build time
+# (production would skip devDependencies like typescript/tsc and break the build).
+ENV NODE_ENV=development
+
 # Build toolchain for better-sqlite3 (native module).
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json* ./
-RUN npm ci
+# --include=dev guarantees devDependencies install regardless of NODE_ENV.
+RUN npm ci --include=dev
 
 COPY tsconfig.json ./
 COPY src ./src
