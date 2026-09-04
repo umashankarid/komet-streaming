@@ -86,4 +86,84 @@ describe("MatchOrchestrator", () => {
     expect(() => orch.startMatch(2)).toThrow(/No match assigned/);
     expect(orch.snapshot(2)).toBeUndefined();
   });
+
+  describe("streaming orchestration", () => {
+    it("exposes a default streaming snapshot for any court (no match needed)", () => {
+      const snap = orch.streamingSnapshot(2);
+      expect(snap).toEqual(
+        expect.objectContaining({
+          courtId: 2,
+          youtubeStatus: "idle",
+          overlayMode: "score",
+          cameraConnected: false,
+        }),
+      );
+    });
+
+    it("suggests a title from match info and falls back without a match", () => {
+      expect(orch.suggestTitle(3)).toBe("Court 3");
+      orch.createMatch({ courtId: 1, home, away, banner: "U15" });
+      expect(orch.suggestTitle(1)).toBe("U15 | A vs B | Court 1");
+    });
+
+    it("sets camera connectivity and emits a streaming update", () => {
+      const listener = vi.fn();
+      orch.onStreamingUpdate(listener);
+      const snap = orch.setCameraConnected(1, true);
+      expect(snap.cameraConnected).toBe(true);
+      expect(listener).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ cameraConnected: true }),
+      );
+    });
+
+    it("sets overlay mode and title before starting", () => {
+      expect(orch.setOverlayMode(1, "match").overlayMode).toBe("match");
+      expect(orch.setStreamTitle(1, "  Custom  ").title).toBe("Custom");
+    });
+
+    it("runs start -> live -> stop through the orchestrator, emitting each step", () => {
+      const listener = vi.fn();
+      orch.onStreamingUpdate(listener);
+
+      const started = orch.requestStreamStart(1, {
+        title: "Komet | A vs B",
+        overlayMode: "full",
+      });
+      expect(started.youtubeStatus).toBe("starting");
+      expect(started.title).toBe("Komet | A vs B");
+
+      const live = orch.confirmStreamLive(1, "yt-1");
+      expect(live.youtubeStatus).toBe("live");
+      expect(live.broadcastId).toBe("yt-1");
+
+      expect(orch.requestStreamStop(1).youtubeStatus).toBe("stopping");
+      expect(orch.confirmStreamStopped(1).youtubeStatus).toBe("idle");
+      expect(listener).toHaveBeenCalledTimes(4);
+    });
+
+    it("auto-generates the title on start when none is provided", () => {
+      orch.createMatch({ courtId: 1, home, away, banner: "Final" });
+      const snap = orch.requestStreamStart(1);
+      expect(snap.title).toBe("Final | A vs B | Court 1");
+    });
+
+    it("supports fail and reset (recovery) flows", () => {
+      orch.requestStreamStart(2, { title: "T" });
+      const failed = orch.failStream(2, "boom");
+      expect(failed.youtubeStatus).toBe("error");
+      expect(failed.error).toBe("boom");
+      expect(orch.resetStream(2).youtubeStatus).toBe("idle");
+    });
+
+    it("can unsubscribe streaming listeners", () => {
+      const listener = vi.fn();
+      const off = orch.onStreamingUpdate(listener);
+      orch.setCameraConnected(1, true);
+      const calls = listener.mock.calls.length;
+      off();
+      orch.setCameraConnected(1, false);
+      expect(listener.mock.calls.length).toBe(calls);
+    });
+  });
 });

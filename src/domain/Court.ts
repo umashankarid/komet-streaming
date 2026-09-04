@@ -1,4 +1,5 @@
 import { Match } from "./Match.js";
+import { CourtStreaming } from "./Streaming.js";
 
 /** Zero-pad a court number to 2 digits, per PROJECT_RULES Rule 5. */
 export function pad2(courtId: number): string {
@@ -34,6 +35,12 @@ export function courtNaming(courtId: number): CourtNaming {
 export class Court {
   readonly id: number;
   readonly naming: CourtNaming;
+  /**
+   * Per-court streaming state. Always present: a court can stream with or
+   * without an assigned match (PROJECT_RULES Rule 3 — camera layer is
+   * independent of match state).
+   */
+  readonly streaming: CourtStreaming;
   private currentMatch?: Match;
 
   constructor(id: number) {
@@ -42,6 +49,7 @@ export class Court {
     }
     this.id = id;
     this.naming = courtNaming(id);
+    this.streaming = new CourtStreaming(id);
   }
 
   getMatch(): Match | undefined {

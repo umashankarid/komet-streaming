@@ -47,6 +47,16 @@ describe("Court", () => {
     const match = new Match({ id: "m", courtId: 2, home, away });
     expect(() => court.assignMatch(match)).toThrow(/does not match/);
   });
+
+  it("always has an independent streaming instance (Rule 3)", () => {
+    const court = new Court(1);
+    expect(court.streaming.courtId).toBe(1);
+    expect(court.streaming.snapshot().youtubeStatus).toBe("idle");
+    // Streaming exists even with no match assigned.
+    expect(court.getMatch()).toBeUndefined();
+    court.streaming.setCameraConnected(true);
+    expect(court.streaming.isCameraConnected()).toBe(true);
+  });
 });
 
 describe("CourtService", () => {
