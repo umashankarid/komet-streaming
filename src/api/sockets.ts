@@ -16,13 +16,20 @@ export function attachSockets(
   io.on("connection", (socket) => {
     socket.on("join-court", (courtId: number) => {
       socket.join(`court:${courtId}`);
-      const snap = orch.snapshot(Number(courtId));
+      const id = Number(courtId);
+      const snap = orch.snapshot(id);
       if (snap) socket.emit("court:update", snap);
+      // Streaming state always exists (even with no match).
+      socket.emit("streaming:update", orch.streamingSnapshot(id));
     });
   });
 
   orch.onUpdate((courtId, snapshot) => {
     io.to(`court:${courtId}`).emit("court:update", snapshot);
+  });
+
+  orch.onStreamingUpdate((courtId, snapshot) => {
+    io.to(`court:${courtId}`).emit("streaming:update", snapshot);
   });
 
   return io;

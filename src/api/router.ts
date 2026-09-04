@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import type { MatchOrchestrator } from "../domain/MatchOrchestrator.js";
+import { OVERLAY_MODES, type OverlayMode } from "../domain/Streaming.js";
 import {
   DEFAULT_SCORING,
   type ScoringConfig,
@@ -22,6 +23,16 @@ function parseSide(value: unknown): Side {
     throw new HttpError(400, `side must be one of ${SIDES.join(", ")}`);
   }
   return value as Side;
+}
+
+function parseOverlayMode(value: unknown): OverlayMode {
+  if (typeof value !== "string" || !OVERLAY_MODES.includes(value as OverlayMode)) {
+    throw new HttpError(
+      400,
+      `overlayMode must be one of ${OVERLAY_MODES.join(", ")}`,
+    );
+  }
+  return value as OverlayMode;
 }
 
 function parseTeam(value: unknown, label: string): Team {
@@ -100,6 +111,7 @@ export function createApiRouter(orch: MatchOrchestrator): Router {
           id: c.id,
           naming: c.naming,
           match: c.getMatch()?.snapshot() ?? null,
+          streaming: c.streaming.snapshot(),
         })),
       );
     }),
@@ -188,6 +200,119 @@ export function createApiRouter(orch: MatchOrchestrator): Router {
     "/courts/:courtId/match/next-game",
     handle((req, res) => {
       res.json(orch.nextGame(parseCourtId(req)));
+    }),
+  );
+
+  // --- Streaming controls (control-plane state; Rules 2 & 3) -------------
+  // Thin controllers over the orchestrator's streaming state machine. These
+  // manage YouTube-broadcast/overlay intent only; actual video transport is
+  // the separate media gateway's job.
+
+  // Current streaming state for a court (always present, even without a match).
+  router.get(
+    "/courts/:courtId/streaming",
+    handle((req, res) => {
+      res.json(orch.streamingSnapshot(parseCourtId(req)));
+    }),
+  );
+
+  // Suggested YouTube title, derived from the court's match when present.
+  router.get(
+    "/courts/:courtId/streaming/suggest-title",
+    handle((req, res) => {
+      const courtId = parseCourtId(req);
+      res.json({ courtId, title: orch.suggestTitle(courtId) });
+    }),
+  );
+
+  // Set/clear the YouTube title (before starting).
+  router.post(
+    "/courts/:courtId/streaming/title",
+    handle((req, res) => {
+      const courtId = parseCourtId(req);
+      const title =
+        typeof req.body?.title === "string" ? req.body.title : undefined;
+      res.json(orch.setStreamTitle(courtId, title));
+    }),
+  );
+
+  // Choose overlay mode (before starting).
+  router.post(
+    "/courts/:courtId/streaming/overlay",
+    handle((req, res) => {
+      const courtId = parseCourtId(req);
+      res.json(orch.setOverlayMode(courtId, parseOverlayMode(req.body?.overlayMode)));
+    }),
+  );
+
+  // Report SRT camera connectivity (called by the gateway/health probe).
+  router.post(
+    "/courts/:courtId/streaming/camera",
+    handle((req, res) => {
+      const courtId = parseCourtId(req);
+      res.json(orch.setCameraConnected(courtId, Boolean(req.body?.connected)));
+    }),
+  );
+
+  // Begin the start sequence (idle/error -> starting). Title is optional; when
+  // omitted an auto-generated title from match info is used.
+  router.post(
+    "/courts/:courtId/streaming/start",
+    handle((req, res) => {
+      const courtId = parseCourtId(req);
+      const title =
+        typeof req.body?.title === "string" ? req.body.title : undefined;
+      const overlayMode =
+        req.body?.overlayMode === undefined
+          ? undefined
+          : parseOverlayMode(req.body.overlayMode);
+      res.json(orch.requestStreamStart(courtId, { title, overlayMode }));
+    }),
+  );
+
+  // Confirm the YouTube broadcast is live (starting -> live).
+  router.post(
+    "/courts/:courtId/streaming/live",
+    handle((req, res) => {
+      const courtId = parseCourtId(req);
+      const broadcastId =
+        typeof req.body?.broadcastId === "string" ? req.body.broadcastId : "";
+      res.json(orch.confirmStreamLive(courtId, broadcastId));
+    }),
+  );
+
+  // Begin the stop sequence (live -> stopping).
+  router.post(
+    "/courts/:courtId/streaming/stop",
+    handle((req, res) => {
+      res.json(orch.requestStreamStop(parseCourtId(req)));
+    }),
+  );
+
+  // Finalize the stop (stopping -> idle); keeps the camera connection.
+  router.post(
+    "/courts/:courtId/streaming/stopped",
+    handle((req, res) => {
+      res.json(orch.confirmStreamStopped(parseCourtId(req)));
+    }),
+  );
+
+  // Move to error state with a reason.
+  router.post(
+    "/courts/:courtId/streaming/fail",
+    handle((req, res) => {
+      const courtId = parseCourtId(req);
+      const reason =
+        typeof req.body?.reason === "string" ? req.body.reason : "";
+      res.json(orch.failStream(courtId, reason));
+    }),
+  );
+
+  // Recover from error back to idle.
+  router.post(
+    "/courts/:courtId/streaming/reset",
+    handle((req, res) => {
+      res.json(orch.resetStream(parseCourtId(req)));
     }),
   );
 

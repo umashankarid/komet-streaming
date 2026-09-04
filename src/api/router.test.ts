@@ -132,4 +132,111 @@ describe("REST API", () => {
     expect(res.status).toBe(200);
     expect(res.body.tickerText).toBe("Semi Final coming up");
   });
+
+  describe("streaming routes", () => {
+    it("returns default streaming state for a court", async () => {
+      const res = await request(app).get("/api/courts/2/streaming");
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        courtId: 2,
+        youtubeStatus: "idle",
+        overlayMode: "score",
+        cameraConnected: false,
+      });
+    });
+
+    it("suggests a title (court fallback and from match)", async () => {
+      const fallback = await request(app).get("/api/courts/3/streaming/suggest-title");
+      expect(fallback.body).toEqual({ courtId: 3, title: "Court 3" });
+
+      await request(app)
+        .post("/api/courts/1/match")
+        .send({ ...teams, banner: "U15" });
+      const fromMatch = await request(app).get("/api/courts/1/streaming/suggest-title");
+      expect(fromMatch.body.title).toBe("U15 | A. Home vs B. Away | Court 1");
+    });
+
+    it("sets title and overlay mode before starting", async () => {
+      const title = await request(app)
+        .post("/api/courts/1/streaming/title")
+        .send({ title: "  Training | A vs B  " });
+      expect(title.status).toBe(200);
+      expect(title.body.title).toBe("Training | A vs B");
+
+      const overlay = await request(app)
+        .post("/api/courts/1/streaming/overlay")
+        .send({ overlayMode: "match" });
+      expect(overlay.body.overlayMode).toBe("match");
+    });
+
+    it("rejects an invalid overlay mode", async () => {
+      const res = await request(app)
+        .post("/api/courts/1/streaming/overlay")
+        .send({ overlayMode: "rainbow" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/overlayMode must be/);
+    });
+
+    it("reports camera connectivity", async () => {
+      const res = await request(app)
+        .post("/api/courts/1/streaming/camera")
+        .send({ connected: true });
+      expect(res.body.cameraConnected).toBe(true);
+    });
+
+    it("runs the full start -> live -> stop -> stopped flow", async () => {
+      const start = await request(app)
+        .post("/api/courts/1/streaming/start")
+        .send({ title: "Komet | A vs B", overlayMode: "full" });
+      expect(start.status).toBe(200);
+      expect(start.body.youtubeStatus).toBe("starting");
+      expect(start.body.title).toBe("Komet | A vs B");
+
+      const live = await request(app)
+        .post("/api/courts/1/streaming/live")
+        .send({ broadcastId: "yt-42" });
+      expect(live.body.youtubeStatus).toBe("live");
+      expect(live.body.broadcastId).toBe("yt-42");
+
+      const stop = await request(app).post("/api/courts/1/streaming/stop");
+      expect(stop.body.youtubeStatus).toBe("stopping");
+
+      const stopped = await request(app).post("/api/courts/1/streaming/stopped");
+      expect(stopped.body.youtubeStatus).toBe("idle");
+    });
+
+    it("auto-generates the title on start when omitted", async () => {
+      await request(app)
+        .post("/api/courts/2/match")
+        .send({ ...teams, banner: "Final" });
+      const start = await request(app).post("/api/courts/2/streaming/start").send({});
+      expect(start.body.title).toBe("Final | A. Home vs B. Away | Court 2");
+    });
+
+    it("rejects going live before starting", async () => {
+      const res = await request(app)
+        .post("/api/courts/1/streaming/live")
+        .send({ broadcastId: "x" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Cannot go live/);
+    });
+
+    it("supports fail and reset recovery", async () => {
+      await request(app).post("/api/courts/1/streaming/start").send({ title: "T" });
+      const failed = await request(app)
+        .post("/api/courts/1/streaming/fail")
+        .send({ reason: "boom" });
+      expect(failed.body.youtubeStatus).toBe("error");
+      expect(failed.body.error).toBe("boom");
+      const reset = await request(app).post("/api/courts/1/streaming/reset");
+      expect(reset.body.youtubeStatus).toBe("idle");
+    });
+
+    it("includes streaming state in the courts list", async () => {
+      await request(app).post("/api/courts/1/streaming/camera").send({ connected: true });
+      const res = await request(app).get("/api/courts");
+      const court1 = res.body.find((c: { id: number }) => c.id === 1);
+      expect(court1.streaming).toMatchObject({ courtId: 1, cameraConnected: true });
+    });
+  });
 });

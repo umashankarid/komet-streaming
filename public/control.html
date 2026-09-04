@@ -149,6 +149,7 @@
     <script>
       const socket = io();
       const state = new Map(); // courtId -> snapshot
+      const streaming = new Map(); // courtId -> streaming snapshot
       const teamName = (t) =>
         (t?.players || []).map((p) => p.name).join(" / ") || "—";
 
@@ -185,7 +186,9 @@
           .forEach((id) => {
             const c = courts.find((x) => x.id === id);
             if (c?.match) state.set(id, c.match);
+            if (c?.streaming) streaming.set(id, c.streaming);
             renderCourt(id);
+            renderStreaming(id);
             socket.emit("join-court", id);
           });
       }
@@ -247,6 +250,103 @@
             "</div>";
         }
         if (!existing) document.getElementById("grid").appendChild(node);
+        // renderCourt rewrites innerHTML, so (re)attach the streaming section
+        // and repaint it from the last known streaming snapshot.
+        let sc = node.querySelector(".streaming");
+        if (!sc) {
+          sc = el('<div class="streaming" id="streaming-' + courtId + '"></div>');
+          node.appendChild(sc);
+        }
+        renderStreaming(courtId);
+      }
+
+      // --- Streaming section per court -----------------------------------
+      const OVERLAY_LABELS = [
+        ["score", "Match + Score"],
+        ["match", "Match info only"],
+        ["full", "Sponsor/tournament banner"],
+        ["none", "None (clean recording)"],
+      ];
+
+      function streamStatusDot(s) {
+        if (s === "live") return "🔴 LIVE";
+        if (s === "starting") return "🟡 starting…";
+        if (s === "stopping") return "🟡 stopping…";
+        if (s === "error") return "⚠️ error";
+        return "⚪ Not live";
+      }
+
+      function renderStreaming(courtId) {
+        const sc = document.querySelector("#streaming-" + courtId);
+        if (!sc) return;
+        const st = streaming.get(courtId) || {
+          youtubeStatus: "idle",
+          overlayMode: "score",
+          cameraConnected: false,
+        };
+        const live = st.youtubeStatus === "live";
+        const busy = st.youtubeStatus === "starting" || st.youtubeStatus === "stopping";
+        const cam = st.cameraConnected ? "🟢 SRT connected" : "⚪ No camera";
+        // Preserve the operator's in-progress title edit across re-renders.
+        const existingInput = sc.querySelector(".yt-title");
+        const titleVal =
+          existingInput && document.activeElement === existingInput
+            ? existingInput.value
+            : (st.title || "");
+
+        let html =
+          '<hr style="border-color:#21344f;margin:14px 0" />' +
+          '<div class="status">STREAMING · Camera: ' + cam +
+          " · YouTube: " + streamStatusDot(st.youtubeStatus) +
+          (live && st.startedAt
+            ? ' · <span class="timer" data-stream-timer="' + courtId + '">0:00</span>'
+            : "") +
+          (st.error ? ' · <span style="color:#ff7a7a">' + escapeHtml(st.error) + "</span>" : "") +
+          "</div>";
+
+        if (!live && !busy) {
+          html +=
+            '<div class="setup">' +
+            '<input class="yt-title" id="yt-' + courtId + '" placeholder="YouTube title" value="' +
+            escapeAttr(titleVal) + '" />' +
+            '<div style="display:flex;flex-wrap:wrap;gap:10px;font-size:13px">' +
+            OVERLAY_LABELS.map(function (m) {
+              const checked = (st.overlayMode || "score") === m[0] ? " checked" : "";
+              return (
+                '<label style="display:flex;align-items:center;gap:4px">' +
+                '<input type="radio" name="ov-' + courtId + '" value="' + m[0] + '"' + checked + " />" +
+                m[1] + "</label>"
+              );
+            }).join("") +
+            "</div></div>" +
+            '<div class="actions">' +
+            '<button class="primary" data-suggest="' + courtId + '">Auto title</button>' +
+            '<button class="primary" data-stream-start="' + courtId +
+            '" style="background:#ff4d4d;color:#fff">🔴 START STREAM</button>' +
+            (st.youtubeStatus === "error"
+              ? '<button data-stream-reset="' + courtId + '">Reset</button>'
+              : "") +
+            "</div>";
+        } else {
+          html +=
+            '<div class="setup"><div style="font-size:14px">' +
+            "Title: " + escapeHtml(st.title || "—") +
+            "<br/>Overlay: " + (st.overlayMode || "score") + "</div></div>" +
+            '<div class="actions">' +
+            (live
+              ? '<button data-stream-stop="' + courtId + '">⏹ STOP STREAM</button>'
+              : '<button disabled>' + streamStatusDot(st.youtubeStatus) + "</button>") +
+            "</div>";
+        }
+        sc.innerHTML = html;
+      }
+
+      function escapeHtml(s) {
+        return String(s)
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function escapeAttr(s) {
+        return escapeHtml(s).replace(/"/g, "&quot;");
       }
 
       function sideRow(courtId, side, snap) {
@@ -274,6 +374,12 @@
             ms = Date.now() - snap.startedAt;
           }
           elm.textContent = fmtDuration(ms);
+        });
+        // Stream duration timers.
+        document.querySelectorAll("[data-stream-timer]").forEach((elm) => {
+          const st = streaming.get(Number(elm.dataset.streamTimer));
+          if (!st || st.youtubeStatus !== "live" || !st.startedAt) return;
+          elm.textContent = fmtDuration(Date.now() - st.startedAt);
         });
       }, 1000);
 
@@ -308,6 +414,33 @@
           const id = t.dataset.ticker;
           const text = document.getElementById("ticker-" + id).value;
           await api("/courts/" + id + "/match/ticker", { text });
+        } else if (t.dataset.streamStart) {
+          const id = t.dataset.streamStart;
+          const titleInput = document.getElementById("yt-" + id);
+          const title = titleInput ? titleInput.value.trim() : "";
+          const sel = document.querySelector('input[name="ov-' + id + '"]:checked');
+          const overlayMode = sel ? sel.value : undefined;
+          const snap = await api("/courts/" + id + "/streaming/start", {
+            title: title || undefined,
+            overlayMode,
+          });
+          // MVP: no YouTube backend yet, so immediately confirm "live" so the
+          // operator sees the live state and duration timer. (Step D will
+          // replace this with a real broadcast id from the YouTube API.)
+          await api("/courts/" + id + "/streaming/live", {
+            broadcastId: "manual-" + id + "-" + Date.now(),
+          });
+        } else if (t.dataset.streamStop) {
+          const id = t.dataset.streamStop;
+          await api("/courts/" + id + "/streaming/stop", {});
+          await api("/courts/" + id + "/streaming/stopped", {});
+        } else if (t.dataset.suggest) {
+          const id = t.dataset.suggest;
+          const { title } = await api("/courts/" + id + "/streaming/suggest-title");
+          const input = document.getElementById("yt-" + id);
+          if (input) input.value = title;
+        } else if (t.dataset.streamReset) {
+          await api("/courts/" + t.dataset.streamReset + "/streaming/reset", {});
         }
       });
 
@@ -320,6 +453,10 @@
       socket.on("court:update", (snap) => {
         state.set(snap.courtId, snap);
         renderCourt(snap.courtId);
+      });
+      socket.on("streaming:update", (snap) => {
+        streaming.set(snap.courtId, snap);
+        renderStreaming(snap.courtId);
       });
 
       loadCourts();
