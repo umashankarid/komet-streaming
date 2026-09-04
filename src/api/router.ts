@@ -6,6 +6,10 @@ import {
   type YouTubeService,
 } from "../integrations/YouTubeService.js";
 import {
+  NoopMediaGateway,
+  type MediaGateway,
+} from "../streaming/MediaGatewayClient.js";
+import {
   DEFAULT_SCORING,
   type ScoringConfig,
   type Side,
@@ -96,6 +100,7 @@ export class HttpError extends Error {
 export function createApiRouter(
   orch: MatchOrchestrator,
   youtube: YouTubeService = new NoopYouTubeService(),
+  gateway: MediaGateway = new NoopMediaGateway(),
 ): Router {
   const router = Router();
 
@@ -295,6 +300,11 @@ export function createApiRouter(
         const handle = await youtube.createBroadcast({
           title: starting.title ?? orch.suggestTitle(courtId),
         });
+        // Tell the media gateway to push this court's SRT input to the
+        // broadcast's RTMP target, so video actually reaches YouTube.
+        if (gateway.enabled && handle.rtmpUrl) {
+          await gateway.startCourt(courtId, handle.rtmpUrl);
+        }
         await youtube.transitionToLive(handle.broadcastId);
         res.json(orch.confirmStreamLive(courtId, handle.broadcastId));
       } catch (err) {
@@ -326,6 +336,10 @@ export function createApiRouter(
       const current = orch.streamingSnapshot(courtId);
       const stopping = orch.requestStreamStop(courtId);
       try {
+        // Stop the gateway's FFmpeg for this court first (stops pushing video).
+        if (gateway.enabled) {
+          await gateway.stopCourt(courtId);
+        }
         if (current.broadcastId) {
           await youtube.completeBroadcast(current.broadcastId);
         }

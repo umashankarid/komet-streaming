@@ -19,6 +19,12 @@ export interface BroadcastHandle {
   broadcastId: string;
   /** Public watch URL, when known. */
   watchUrl?: string;
+  /**
+   * Full RTMP push URL (ingestion address + stream key) for the bound stream,
+   * when known. This is what the media gateway pushes video to. Only available
+   * for auto-created streams (YouTube returns the key on create).
+   */
+  rtmpUrl?: string;
 }
 
 export interface YouTubeService {
@@ -146,6 +152,8 @@ export class YouTubeApiService implements YouTubeService {
   private accessTokenExpiry = 0;
   /** Cached id of a reusable stream we auto-created (when none configured). */
   private autoStreamId?: string;
+  /** Cached RTMP push URL for the auto-created stream. */
+  private autoRtmpUrl?: string;
 
   constructor(cfg: YouTubeConfig, fetchImpl?: FetchLike) {
     this.cfg = cfg;
@@ -253,12 +261,15 @@ export class YouTubeApiService implements YouTubeService {
     return {
       broadcastId,
       watchUrl: `https://www.youtube.com/watch?v=${broadcastId}`,
+      rtmpUrl: this.autoRtmpUrl,
     };
   }
 
   /**
    * Return the stream id to bind to: the configured one, a previously
    * auto-created one, or a newly created reusable stream (cached for reuse).
+   * When auto-creating, also caches the full RTMP push URL so the media
+   * gateway can be told where to send video.
    */
   private async resolveStreamId(titleHint: string): Promise<string> {
     if (this.cfg.streamId) return this.cfg.streamId;
@@ -277,8 +288,19 @@ export class YouTubeApiService implements YouTubeService {
           contentDetails: { isReusable: true },
         },
       },
-    )) as { id: string };
+    )) as {
+      id: string;
+      cdn?: {
+        ingestionInfo?: { ingestionAddress?: string; streamName?: string };
+      };
+    };
     this.autoStreamId = created.id;
+    const info = created.cdn?.ingestionInfo;
+    if (info?.ingestionAddress && info?.streamName) {
+      // Normalize (YouTube returns address without trailing slash).
+      const addr = info.ingestionAddress.replace(/\/$/, "");
+      this.autoRtmpUrl = `${addr}/${info.streamName}`;
+    }
     return created.id;
   }
 

@@ -14,7 +14,7 @@ export default defineConfig({
         functions: 80,
         branches: 80,
       },
-      include: ["src/domain/**/*.ts", "src/api/**/*.ts", "src/persistence/**/*.ts", "src/integrations/**/*.ts", "src/youtube/**/*.ts"],
+      include: ["src/domain/**/*.ts", "src/api/**/*.ts", "src/persistence/**/*.ts", "src/integrations/**/*.ts", "src/youtube/**/*.ts", "src/streaming/**/*.ts"],
       exclude: [
         "src/**/*.test.ts",
         "src/**/index.ts",

@@ -294,3 +294,68 @@ describe("streaming routes with a YouTube service", () => {
     expect(start.body.streaming.youtubeStatus).toBe("error");
   });
 });
+
+describe("streaming routes with a media gateway", () => {
+  function appWith(
+    youtube: import("../integrations/YouTubeService.js").YouTubeService,
+    gateway: import("../streaming/MediaGatewayClient.js").MediaGateway,
+  ) {
+    const a = express();
+    a.use(express.json());
+    a.use("/api", createApiRouter(new MatchOrchestrator(), youtube, gateway));
+    return a;
+  }
+
+  const youtube = {
+    enabled: true,
+    async createBroadcast() {
+      return { broadcastId: "yt-1", rtmpUrl: "rtmp://a.rtmp.youtube.com/live2/key-1" };
+    },
+    async transitionToLive() {},
+    async completeBroadcast() {},
+  };
+
+  it("tells the gateway to start the court with the broadcast rtmp url", async () => {
+    const calls: string[] = [];
+    const gateway = {
+      enabled: true,
+      async startCourt(courtId: number, rtmpUrl: string) {
+        calls.push(`start:${courtId}:${rtmpUrl}`);
+        return { ok: true, courtId };
+      },
+      async stopCourt(courtId: number) {
+        calls.push(`stop:${courtId}`);
+        return { ok: true, stopped: true };
+      },
+    };
+    const app = appWith(youtube, gateway);
+    const start = await request(app)
+      .post("/api/courts/1/streaming/start")
+      .send({ title: "T" });
+    expect(start.status).toBe(200);
+    expect(start.body.youtubeStatus).toBe("live");
+    expect(calls).toContain("start:1:rtmp://a.rtmp.youtube.com/live2/key-1");
+
+    const stop = await request(app).post("/api/courts/1/streaming/stop");
+    expect(stop.status).toBe(200);
+    expect(calls).toContain("stop:1");
+  });
+
+  it("does not call a disabled gateway", async () => {
+    let called = false;
+    const gateway = {
+      enabled: false,
+      async startCourt(courtId: number) {
+        called = true;
+        return { ok: true, courtId };
+      },
+      async stopCourt() {
+        called = true;
+        return { ok: true };
+      },
+    };
+    const app = appWith(youtube, gateway);
+    await request(app).post("/api/courts/1/streaming/start").send({ title: "T" });
+    expect(called).toBe(false);
+  });
+});

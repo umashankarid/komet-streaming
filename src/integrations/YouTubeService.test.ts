@@ -225,7 +225,15 @@ describe("YouTubeApiService", () => {
     const { fn, calls } = fakeFetch([
       () => ({ access_token: "tok", expires_in: 3600 }), // token
       () => ({ id: "bcast-1" }), // create broadcast
-      () => ({ id: "auto-stream-1" }), // create liveStream (auto)
+      () => ({
+        id: "auto-stream-1",
+        cdn: {
+          ingestionInfo: {
+            ingestionAddress: "rtmp://a.rtmp.youtube.com/live2",
+            streamName: "abcd-1234",
+          },
+        },
+      }), // create liveStream (auto)
       () => ({ id: "bcast-1" }), // bind
     ]);
     const svc = new YouTubeApiService(
@@ -234,6 +242,7 @@ describe("YouTubeApiService", () => {
     );
     const handle = await svc.createBroadcast({ title: "Court 1" });
     expect(handle.broadcastId).toBe("bcast-1");
+    expect(handle.rtmpUrl).toBe("rtmp://a.rtmp.youtube.com/live2/abcd-1234");
     const createStream = calls.find((c) => c.url.includes("/liveStreams?part="));
     expect(createStream).toBeDefined();
     const bind = calls.find((c) => c.url.includes("/bind"));

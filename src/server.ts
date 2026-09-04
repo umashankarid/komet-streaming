@@ -6,6 +6,7 @@ import { attachSockets } from "./api/sockets.js";
 import { CourtService } from "./domain/Court.js";
 import { MatchOrchestrator } from "./domain/MatchOrchestrator.js";
 import { youTubeServiceFromEnv } from "./integrations/YouTubeService.js";
+import { mediaGatewayFromEnv } from "./streaming/MediaGatewayClient.js";
 import { SqliteStore } from "./persistence/SqliteStore.js";
 import { YouTubeAuthService } from "./youtube/YouTubeAuthService.js";
 import { YouTubeTokenStore } from "./youtube/YouTubeTokenStore.js";
@@ -40,6 +41,9 @@ const youtube = youTubeServiceFromEnv(
   tokenStore ? () => tokenStore!.getRefreshToken() : undefined,
 );
 
+// Media gateway client (per-court FFmpeg control over the internal network).
+const gateway = mediaGatewayFromEnv();
+
 // Interactive OAuth service (needs client id/secret + redirect uri).
 const oauthClientId = process.env.YOUTUBE_CLIENT_ID;
 const oauthClientSecret = process.env.YOUTUBE_CLIENT_SECRET;
@@ -63,6 +67,7 @@ const app = createApp(orch, {
     ? process.env.TRUST_PROXY !== "false"
     : process.env.NODE_ENV === "production",
   youtube,
+  gateway,
   authRouter,
 });
 const httpServer = createServer(app);
@@ -74,6 +79,7 @@ httpServer.listen(PORT, () => {
   console.log(`Courts: ${COURT_COUNT} | DB: ${DB_PATH}`);
   console.log(`YouTube integration: ${youtube.enabled ? "enabled" : "disabled (fallback)"}`);
   console.log(`YouTube OAuth login: ${authRouter ? "enabled" : "disabled (set YOUTUBE_CLIENT_ID/SECRET/REDIRECT_URI + TOKEN_ENCRYPTION_KEY)"}`);
+  console.log(`Media gateway: ${gateway.enabled ? "enabled" : "disabled (set GATEWAY_URL)"}`);
 });
 
 function shutdown(): void {
