@@ -21,6 +21,13 @@ export interface AppOptions {
   sessionSecret: string;
   /** Set Secure cookie flag (true behind HTTPS in production). */
   secureCookie?: boolean;
+  /**
+   * Trust the reverse proxy (e.g. Coolify/Traefik) so Express honours
+   * X-Forwarded-Proto and can emit Secure cookies when TLS is terminated at
+   * the proxy. Defaults to true whenever secureCookie is enabled — otherwise a
+   * Secure cookie would be silently dropped behind an HTTP proxy hop.
+   */
+  trustProxy?: boolean;
 }
 
 /** True if the request carries a valid authenticated session. */
@@ -39,6 +46,13 @@ function isAuthed(req: Request): boolean {
  */
 export function createApp(orch: MatchOrchestrator, opts: AppOptions): Express {
   const app = express();
+  const secureCookie = opts.secureCookie ?? false;
+  // A Secure cookie is only sent when Express considers the connection secure.
+  // Behind a TLS-terminating proxy the app sees plain HTTP, so it must trust
+  // the proxy's X-Forwarded-Proto header. Default trustProxy to secureCookie.
+  if (opts.trustProxy ?? secureCookie) {
+    app.set("trust proxy", 1);
+  }
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
   app.use(
@@ -47,7 +61,7 @@ export function createApp(orch: MatchOrchestrator, opts: AppOptions): Express {
       secret: opts.sessionSecret,
       httpOnly: true,
       sameSite: "lax",
-      secure: opts.secureCookie ?? false,
+      secure: secureCookie,
       maxAge: 12 * 60 * 60 * 1000, // 12h — covers a tournament day
     }),
   );

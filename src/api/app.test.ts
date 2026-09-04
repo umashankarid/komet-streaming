@@ -101,3 +101,33 @@ describe("app auth gating", () => {
     expect(out.headers.location).toBe("/login");
   });
 });
+
+describe("secure cookies behind a TLS-terminating proxy", () => {
+  function secureApp() {
+    return createApp(new MatchOrchestrator(), {
+      auth: { username: "admin", passwordHash: hashPassword("pw") },
+      sessionSecret: "test-secret",
+      secureCookie: true, // trustProxy defaults on when secureCookie is true
+    });
+  }
+
+  it("emits a Secure session cookie when the proxy reports https", async () => {
+    const app = secureApp();
+    const res = await request(app)
+      .post("/login")
+      .set("X-Forwarded-Proto", "https")
+      .type("form")
+      .send({ username: "admin", password: "pw" });
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe("/");
+    const setCookie = res.headers["set-cookie"];
+    expect(setCookie, "login must set a session cookie").toBeDefined();
+    expect(String(setCookie)).toMatch(/komet\.sid/);
+    // The session must actually authenticate follow-up requests.
+    const authed = await request(app)
+      .get("/")
+      .set("X-Forwarded-Proto", "https")
+      .set("Cookie", setCookie);
+    expect(authed.status).toBe(200);
+  });
+});

@@ -20,6 +20,11 @@ const app = createApp(orch, {
   auth: authConfigFromEnv(),
   sessionSecret: process.env.SESSION_SECRET ?? "change-me-in-production",
   secureCookie: process.env.NODE_ENV === "production",
+  // Behind Coolify/Traefik, TLS is terminated at the proxy. Trust it so Secure
+  // cookies are emitted. Override with TRUST_PROXY=false if running direct.
+  trustProxy: process.env.TRUST_PROXY
+    ? process.env.TRUST_PROXY !== "false"
+    : process.env.NODE_ENV === "production",
 });
 const httpServer = createServer(app);
 attachSockets(httpServer, orch);
