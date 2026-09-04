@@ -20,7 +20,6 @@ export default defineConfig({
         "src/**/index.ts",
         "src/server.ts",
         "src/api/sockets.ts",
-        "src/api/app.ts",
       ],
     },
   },

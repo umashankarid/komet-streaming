@@ -77,10 +77,24 @@
         text-transform: uppercase;
         color: #9fb3c8;
       }
+      .banner {
+        background: #ffd200;
+        color: #06210f;
+        padding: 5px 18px;
+        font-size: 15px;
+        font-weight: 800;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        display: none;
+      }
+      .banner.show {
+        display: block;
+      }
     </style>
   </head>
   <body>
     <div id="board" class="scoreboard">
+      <div class="banner" id="banner"></div>
       <div class="header" id="court-label">Court</div>
       <div class="row home">
         <div class="name" id="home-name">—</div>
@@ -108,7 +122,16 @@
           return;
         }
         $("court-label").textContent =
-          "Court " + snap.courtId + " · " + snap.status.toUpperCase();
+          (snap.courtName || "Court " + snap.courtId) +
+          " · " +
+          snap.status.toUpperCase();
+        const bannerEl = $("banner");
+        if (snap.banner) {
+          bannerEl.textContent = snap.banner;
+          bannerEl.classList.add("show");
+        } else {
+          bannerEl.classList.remove("show");
+        }
         $("home-name").textContent = teamName(snap.home);
         $("away-name").textContent = teamName(snap.away);
         $("home-games").textContent = snap.gamesWon.home;

@@ -64,38 +64,75 @@ npm run verify         # build + coverage (run before committing)
 
 ### Environment variables
 
-| Var           | Default            | Description                       |
-|---------------|--------------------|-----------------------------------|
-| `PORT`        | `3000`             | HTTP/WebSocket port               |
-| `COURT_COUNT` | `4`                | Courts pre-created at startup     |
-| `DB_PATH`     | `data/komet.db`    | SQLite file (`:memory:` for none) |
-| `TZ`          | `Europe/Stockholm` | Timezone for timestamps/logs      |
-| `NODE_ENV`    | `production`*      | *set to `production` in the image |
+| Var                   | Default            | Description                          |
+|-----------------------|--------------------|--------------------------------------|
+| `PORT`                | `3000`             | HTTP/WebSocket port                  |
+| `COURT_COUNT`         | `4`                | Courts pre-created at startup        |
+| `DB_PATH`             | `data/komet.db`    | SQLite file (`:memory:` for none)    |
+| `TZ`                  | `Europe/Stockholm` | Timezone for timestamps/logs         |
+| `NODE_ENV`            | `production`*      | *set to `production` in the image    |
+| `ADMIN_USER`          | `admin`            | Login username                       |
+| `ADMIN_PASSWORD_HASH` | –                  | Preferred: `salt:hash` (see below)   |
+| `ADMIN_PASSWORD`      | –                  | Plaintext fallback (hashed at start) |
+| `SESSION_SECRET`      | –                  | Secret used to sign the session cookie |
+
+### Authentication
+
+The site is login-gated: visiting `/` shows a login page, and after signing in
+you land on a dashboard linking to every court's control, overlay, score and
+ticker pages — no need to remember paths. Overlays (`/overlay/court/:id` and
+`/overlay/court/:id/ticker`) stay public so OBS browser sources can load them.
+
+Generate a password hash for `ADMIN_PASSWORD_HASH`:
+
+```bash
+npm run hash-password -- "your-password"
+# prints: <salt>:<hash>  — set this as ADMIN_PASSWORD_HASH in Coolify
+```
+
+Also set a strong `SESSION_SECRET`. Prefer `ADMIN_PASSWORD_HASH` over
+`ADMIN_PASSWORD` so no plaintext password lives in the environment.
+
+### Scoring, court name, banner, ticker
+
+Defaults: **15 points**, win by 2, cap 17, **best of 3** games. Scoring is
+customizable per match via the control panel or the create-match API
+(`scoring: { pointsToWin, winBy, cap, bestOf }`). Each match also supports an
+optional **court name** (label), a **banner** (e.g. "Semi Final", "Final") shown
+on the overlay, and a **scrolling ticker** overlay whose text can be updated live
+from the control panel. The control cards show a live **match duration timer**.
 
 ## URLs
 
-| Purpose          | URL                       |
-|------------------|---------------------------|
-| Operator control | `/control`                |
-| OBS overlay      | `/overlay/court/{n}`      |
-| Score display    | `/score/{n}`              |
-| Health check     | `/healthz`                |
+| Purpose            | URL                            |
+|--------------------|--------------------------------|
+| Login              | `/login`                       |
+| Dashboard (home)   | `/` (requires login)           |
+| Operator control   | `/control` (requires login)    |
+| OBS overlay        | `/overlay/court/{n}` (public)  |
+| Ticker overlay     | `/overlay/court/{n}/ticker` (public) |
+| Score display      | `/score/{n}` (requires login)  |
+| Health check       | `/healthz`                     |
 
 ## REST API
 
 Base path `/api`. Bodies are JSON; responses return the match snapshot.
+`GET` reads are public (overlays need them); all `POST` writes require login.
 
-| Method | Path                               | Body                         |
-|--------|------------------------------------|------------------------------|
-| GET    | `/courts`                          | –                            |
-| GET    | `/courts/:id/match`                | –                            |
-| POST   | `/courts/:id/match`                | `{ home, away, scoring? }`   |
-| POST   | `/courts/:id/match/start`          | –                            |
-| POST   | `/courts/:id/match/point`          | `{ side: "home"\|"away" }`   |
-| POST   | `/courts/:id/match/correct`        | `{ side: "home"\|"away" }`   |
-| POST   | `/courts/:id/match/next-game`      | –                            |
+| Method | Path                               | Body                                        |
+|--------|------------------------------------|---------------------------------------------|
+| GET    | `/courts`                          | –                                           |
+| GET    | `/courts/:id/match`                | –                                           |
+| POST   | `/courts/:id/match`                | `{ home, away, scoring?, courtName?, banner?, tickerText? }` |
+| POST   | `/courts/:id/match/start`          | –                                           |
+| POST   | `/courts/:id/match/point`          | `{ side: "home"\|"away" }`                  |
+| POST   | `/courts/:id/match/correct`        | `{ side: "home"\|"away" }`                  |
+| POST   | `/courts/:id/match/next-game`      | –                                           |
+| POST   | `/courts/:id/match/ticker`         | `{ text }`                                  |
 
 A team is `{ "players": [{ "name": "A. Andersson", "affiliation": "BMK" }] }`.
+`scoring` is `{ pointsToWin?, winBy?, cap?, bestOf? }` (omitted fields use the
+15 / 2 / 17 / 3 defaults).
 
 ### WebSocket
 
@@ -111,6 +148,9 @@ Following the naming convention (Rule 5), for Court 1:
 2. Camera source `CAM_COURT_01` (VDO.Ninja browser source or SRT Media Source).
 3. Add a **Browser Source** `OVERLAY_COURT_01` pointing at
    `https://stream.bmkkomet.se/overlay/court/1`, size `1920×1080`, transparent.
+4. (Optional) Add a second **Browser Source** for the scrolling ticker:
+   `https://stream.bmkkomet.se/overlay/court/1/ticker`, full width, anchored to
+   the bottom. Its text is controlled live from the operator panel.
 
 ## Deployment — Coolify
 
@@ -128,6 +168,9 @@ The control plane runs as a Docker container on the Komet VPS via Coolify.
    DB_PATH=/app/data/komet.db
    NODE_ENV=production
    TZ=Europe/Stockholm
+   ADMIN_USER=admin
+   ADMIN_PASSWORD_HASH=<output of: npm run hash-password -- "your-password">
+   SESSION_SECRET=<a long random string>
    ```
 
    `TZ=Europe/Stockholm` keeps match timestamps, logs and future scheduling

@@ -76,7 +76,7 @@ describe("REST API", () => {
   it("advances to the next game", async () => {
     await request(app).post("/api/courts/1/match").send(teams);
     await request(app).post("/api/courts/1/match/start");
-    for (let i = 0; i < 21; i++) {
+    for (let i = 0; i < 15; i++) {
       await request(app).post("/api/courts/1/match/point").send({ side: "home" });
     }
     const res = await request(app).post("/api/courts/1/match/next-game");
@@ -94,5 +94,42 @@ describe("REST API", () => {
     const res = await request(app).get("/api/courts/2/match");
     expect(res.status).toBe(200);
     expect(res.body.courtId).toBe(2);
+  });
+
+  it("accepts custom scoring, court name and banner", async () => {
+    const res = await request(app)
+      .post("/api/courts/1/match")
+      .send({
+        ...teams,
+        courtName: "Center Court",
+        banner: "Final",
+        scoring: { pointsToWin: 11, cap: 15, bestOf: 1 },
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.courtName).toBe("Center Court");
+    expect(res.body.banner).toBe("Final");
+  });
+
+  it("rejects invalid scoring config", async () => {
+    const bad = await request(app)
+      .post("/api/courts/1/match")
+      .send({ ...teams, scoring: { pointsToWin: 15, cap: 10 } });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toMatch(/cap/);
+
+    const evenBestOf = await request(app)
+      .post("/api/courts/1/match")
+      .send({ ...teams, scoring: { bestOf: 2 } });
+    expect(evenBestOf.status).toBe(400);
+    expect(evenBestOf.body.error).toMatch(/bestOf/);
+  });
+
+  it("sets ticker text via the ticker route", async () => {
+    await request(app).post("/api/courts/1/match").send(teams);
+    const res = await request(app)
+      .post("/api/courts/1/match/ticker")
+      .send({ text: "Semi Final coming up" });
+    expect(res.status).toBe(200);
+    expect(res.body.tickerText).toBe("Semi Final coming up");
   });
 });

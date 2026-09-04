@@ -37,9 +37,13 @@ export interface ScoringConfig {
   bestOf: number;
 }
 
+/**
+ * Default scoring: 15 points, win by 2, capped at 17, best of 3 games.
+ * Per-match scoring can be customized when creating a match.
+ */
 export const DEFAULT_SCORING: ScoringConfig = {
-  pointsToWin: 21,
+  pointsToWin: 15,
   winBy: 2,
-  cap: 30,
+  cap: 17,
   bestOf: 3,
 };

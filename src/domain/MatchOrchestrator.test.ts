@@ -48,9 +48,37 @@ describe("MatchOrchestrator", () => {
   it("advances to the next game via the orchestrator", () => {
     orch.createMatch({ courtId: 1, home, away });
     orch.startMatch(1);
-    for (let i = 0; i < 21; i++) orch.point(1, "home"); // game 1 to home
+    for (let i = 0; i < 15; i++) orch.point(1, "home"); // game 1 to home (default 15)
     orch.nextGame(1);
     expect(orch.snapshot(1)?.games).toHaveLength(2);
+  });
+
+  it("passes custom scoring, court name and banner through", () => {
+    const snap = orch.createMatch({
+      courtId: 1,
+      home,
+      away,
+      scoring: { pointsToWin: 11, winBy: 2, cap: 15, bestOf: 1 },
+      courtName: "Center Court",
+      banner: "Final",
+    });
+    expect(snap.courtName).toBe("Center Court");
+    expect(snap.banner).toBe("Final");
+    orch.startMatch(1);
+    for (let i = 0; i < 11; i++) orch.point(1, "home"); // 11-point game, best of 1
+    expect(orch.snapshot(1)?.matchWinner).toBe("home");
+  });
+
+  it("sets and clears the ticker text and emits", () => {
+    const listener = vi.fn();
+    orch.createMatch({ courtId: 1, home, away });
+    orch.onUpdate(listener);
+    const snap = orch.setTicker(1, "Semi finals starting soon");
+    expect(snap.tickerText).toBe("Semi finals starting soon");
+    expect(listener).toHaveBeenCalledWith(1, expect.objectContaining({
+      tickerText: "Semi finals starting soon",
+    }));
+    expect(orch.setTicker(1, undefined).tickerText).toBeUndefined();
   });
 
   it("throws when acting on a court with no match", () => {

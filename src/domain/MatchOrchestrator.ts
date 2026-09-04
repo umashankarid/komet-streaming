@@ -40,6 +40,9 @@ export class MatchOrchestrator {
     home: Team;
     away: Team;
     scoring?: ScoringConfig;
+    courtName?: string;
+    banner?: string;
+    tickerText?: string;
   }): MatchSnapshot {
     const court = this.ensureCourt(params.courtId);
     const match = new Match({
@@ -48,9 +51,18 @@ export class MatchOrchestrator {
       home: params.home,
       away: params.away,
       scoring: params.scoring,
+      courtName: params.courtName,
+      banner: params.banner,
+      tickerText: params.tickerText,
     });
     court.assignMatch(match);
     return this.emit(params.courtId);
+  }
+
+  /** Set or clear the scrolling ticker text for a court's match. */
+  setTicker(courtId: number, text: string | undefined): MatchSnapshot {
+    this.requireMatch(courtId).setTicker(text);
+    return this.emit(courtId);
   }
 
   startMatch(courtId: number): MatchSnapshot {

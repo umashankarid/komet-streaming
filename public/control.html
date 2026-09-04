@@ -137,6 +137,11 @@
     <header>
       <h1>BMK KOMET — CONTROL</h1>
       <span id="conn" class="status">connecting…</span>
+      <span style="flex:1"></span>
+      <a class="link" href="/">Dashboard</a>
+      <form method="POST" action="/logout" style="display:inline;margin-left:12px">
+        <button type="submit">Sign out</button>
+      </form>
     </header>
     <div id="grid" class="grid"></div>
 
@@ -146,6 +151,16 @@
       const state = new Map(); // courtId -> snapshot
       const teamName = (t) =>
         (t?.players || []).map((p) => p.name).join(" / ") || "—";
+
+      // Format elapsed ms as H:MM:SS or M:SS.
+      function fmtDuration(ms) {
+        const s = Math.floor(ms / 1000);
+        const hh = Math.floor(s / 3600);
+        const mm = Math.floor((s % 3600) / 60);
+        const ss = s % 60;
+        const p = (n) => String(n).padStart(2, "0");
+        return hh > 0 ? hh + ":" + p(mm) + ":" + p(ss) : mm + ":" + p(ss);
+      }
 
       async function api(path, body) {
         const res = await fetch("/api" + path, {
@@ -163,7 +178,6 @@
 
       async function loadCourts() {
         const courts = await api("/courts");
-        // Ensure at least 4 courts are visible for setup.
         const ids = new Set(courts.map((c) => c.id));
         for (let i = 1; i <= 4; i++) ids.add(i);
         [...ids]
@@ -189,27 +203,39 @@
 
         if (!snap) {
           node.innerHTML =
-            '<h2>Court ' + courtId + "</h2>" +
+            "<h2>Court " + courtId + "</h2>" +
             '<div class="status">no match</div>' +
             '<div class="setup">' +
+            '<input id="name-' + courtId + '" placeholder="Court name (optional, e.g. Center Court)" />' +
+            '<input id="banner-' + courtId + '" placeholder="Banner (optional, e.g. Semi Final)" />' +
             '<input id="h-' + courtId + '" placeholder="Home player(s)" />' +
             '<input id="a-' + courtId + '" placeholder="Away player(s)" />' +
+            '<input id="pts-' + courtId + '" type="number" min="1" value="15" placeholder="Points to win" />' +
+            '<input id="bo-' + courtId + '" type="number" min="1" step="2" value="3" placeholder="Best of (odd)" />' +
             "</div>" +
             '<div class="actions"><button class="primary" data-create="' +
             courtId + '">Create match</button></div>';
         } else {
           node.innerHTML =
-            '<h2>Court ' + courtId +
+            "<h2>" + (snap.courtName || "Court " + courtId) +
             ' <a class="link" href="/overlay/court/' + courtId +
             '" target="_blank">overlay</a> ' +
+            '<a class="link" href="/overlay/court/' + courtId +
+            '/ticker" target="_blank">ticker</a> ' +
             '<a class="link" href="/score/' + courtId +
             '" target="_blank">score</a></h2>' +
             '<div class="status">' + snap.status +
+            (snap.banner ? " · " + snap.banner : "") +
             " · games " + snap.gamesWon.home + "–" + snap.gamesWon.away +
+            ' · <span class="timer" data-timer="' + courtId + '">0:00</span>' +
             (snap.matchWinner ? " · winner: " + snap.matchWinner : "") +
             "</div>" +
             sideRow(courtId, "home", snap) +
             sideRow(courtId, "away", snap) +
+            '<div class="setup" style="margin-top:12px">' +
+            '<input id="ticker-' + courtId + '" placeholder="Scrolling ticker text" value="' +
+            (snap.tickerText ? String(snap.tickerText).replace(/"/g, "&quot;") : "") + '" />' +
+            "</div>" +
             '<div class="actions">' +
             (snap.status === "scheduled"
               ? '<button class="primary" data-start="' + courtId + '">Start</button>'
@@ -217,6 +243,7 @@
             (snap.status === "live"
               ? '<button data-next="' + courtId + '">Next game</button>'
               : "") +
+            '<button data-ticker="' + courtId + '">Update ticker</button>' +
             "</div>";
         }
         if (!existing) document.getElementById("grid").appendChild(node);
@@ -235,15 +262,35 @@
         );
       }
 
+      // Live duration timer: tick every second using the snapshot's
+      // startedAt/durationMs so it stays correct across reconnects.
+      setInterval(() => {
+        document.querySelectorAll("[data-timer]").forEach((elm) => {
+          const snap = state.get(Number(elm.dataset.timer));
+          if (!snap) return;
+          let ms = snap.durationMs || 0;
+          // While live, extend the last-known duration by wall-clock drift.
+          if (snap.status === "live" && snap.startedAt) {
+            ms = Date.now() - snap.startedAt;
+          }
+          elm.textContent = fmtDuration(ms);
+        });
+      }, 1000);
+
       document.addEventListener("click", async (e) => {
         const t = e.target;
         if (t.dataset.create) {
           const id = Number(t.dataset.create);
-          const home = document.getElementById("h-" + id).value || "Home";
-          const away = document.getElementById("a-" + id).value || "Away";
+          const g = (p) => document.getElementById(p + id).value.trim();
           await api("/courts/" + id + "/match", {
-            home: { players: [{ name: home }] },
-            away: { players: [{ name: away }] },
+            courtName: g("name-") || undefined,
+            banner: g("banner-") || undefined,
+            home: { players: [{ name: g("h-") || "Home" }] },
+            away: { players: [{ name: g("a-") || "Away" }] },
+            scoring: {
+              pointsToWin: Number(g("pts-")) || 15,
+              bestOf: Number(g("bo-")) || 3,
+            },
           });
         } else if (t.dataset.start) {
           await api("/courts/" + t.dataset.start + "/match/start", {});
@@ -257,6 +304,10 @@
           });
         } else if (t.dataset.next) {
           await api("/courts/" + t.dataset.next + "/match/next-game", {});
+        } else if (t.dataset.ticker) {
+          const id = t.dataset.ticker;
+          const text = document.getElementById("ticker-" + id).value;
+          await api("/courts/" + id + "/match/ticker", { text });
         }
       });
 

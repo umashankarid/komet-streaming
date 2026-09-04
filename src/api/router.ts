@@ -1,6 +1,11 @@
 import { Router, type Request, type Response } from "express";
 import type { MatchOrchestrator } from "../domain/MatchOrchestrator.js";
-import type { Side, Team } from "../domain/types.js";
+import {
+  DEFAULT_SCORING,
+  type ScoringConfig,
+  type Side,
+  type Team,
+} from "../domain/types.js";
 
 const SIDES: Side[] = ["home", "away"];
 
@@ -29,6 +34,37 @@ function parseTeam(value: unknown, label: string): Team {
     throw new HttpError(400, `${label} must have at least one player`);
   }
   return value as Team;
+}
+
+/**
+ * Parse an optional partial scoring config from the request body. Any omitted
+ * field falls back to DEFAULT_SCORING (15 / win-by-2 / cap 17 / best of 3).
+ * Values are range-checked here; the Score constructor enforces invariants too.
+ */
+function parseScoring(value: unknown): ScoringConfig | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object") {
+    throw new HttpError(400, "scoring must be an object");
+  }
+  const v = value as Partial<ScoringConfig>;
+  const merged: ScoringConfig = {
+    pointsToWin: v.pointsToWin ?? DEFAULT_SCORING.pointsToWin,
+    winBy: v.winBy ?? DEFAULT_SCORING.winBy,
+    cap: v.cap ?? DEFAULT_SCORING.cap,
+    bestOf: v.bestOf ?? DEFAULT_SCORING.bestOf,
+  };
+  for (const [k, val] of Object.entries(merged)) {
+    if (!Number.isInteger(val) || (val as number) < 1) {
+      throw new HttpError(400, `scoring.${k} must be a positive integer`);
+    }
+  }
+  if (merged.cap < merged.pointsToWin) {
+    throw new HttpError(400, "scoring.cap must be >= scoring.pointsToWin");
+  }
+  if (merged.bestOf % 2 === 0) {
+    throw new HttpError(400, "scoring.bestOf must be an odd number");
+  }
+  return merged;
 }
 
 /** Simple typed HTTP error carried to the error handler. */
@@ -86,9 +122,42 @@ export function createApiRouter(orch: MatchOrchestrator): Router {
       const courtId = parseCourtId(req);
       const home = parseTeam(req.body?.home, "home");
       const away = parseTeam(req.body?.away, "away");
+      const scoring = parseScoring(req.body?.scoring);
+      const courtName =
+        typeof req.body?.courtName === "string"
+          ? req.body.courtName.slice(0, 60)
+          : undefined;
+      const banner =
+        typeof req.body?.banner === "string"
+          ? req.body.banner.slice(0, 60)
+          : undefined;
+      const tickerText =
+        typeof req.body?.tickerText === "string"
+          ? req.body.tickerText.slice(0, 500)
+          : undefined;
       res.status(201).json(
-        orch.createMatch({ courtId, home, away, scoring: req.body?.scoring }),
+        orch.createMatch({
+          courtId,
+          home,
+          away,
+          scoring,
+          courtName,
+          banner,
+          tickerText,
+        }),
       );
+    }),
+  );
+
+  router.post(
+    "/courts/:courtId/match/ticker",
+    handle((req, res) => {
+      const courtId = parseCourtId(req);
+      const text =
+        typeof req.body?.text === "string"
+          ? req.body.text.slice(0, 500)
+          : undefined;
+      res.json(orch.setTicker(courtId, text));
     }),
   );
 

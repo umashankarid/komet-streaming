@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Komet — Dashboard</title>
+    <style>
+      body {
+        margin: 0;
+        background: #0b1628;
+        color: #e8eef6;
+        font-family: "Segoe UI", Roboto, Arial, sans-serif;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 24px;
+        border-bottom: 1px solid #21344f;
+      }
+      header h1 {
+        font-size: 18px;
+        margin: 0;
+        letter-spacing: 1px;
+      }
+      header a,
+      header button {
+        color: #7fc0ff;
+        background: none;
+        border: none;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .primary-link {
+        display: inline-block;
+        margin: 24px 24px 0;
+        background: #37d67a;
+        color: #06210f;
+        font-weight: 700;
+        text-decoration: none;
+        padding: 12px 18px;
+        border-radius: 8px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 16px;
+        padding: 24px;
+      }
+      .court {
+        background: #13233d;
+        border: 1px solid #21344f;
+        border-radius: 10px;
+        padding: 16px;
+      }
+      .court h2 {
+        margin: 0 0 12px;
+        font-size: 16px;
+      }
+      .court .status {
+        color: #9fb3c8;
+        font-size: 13px;
+        margin-bottom: 12px;
+      }
+      .links a {
+        display: inline-block;
+        margin: 4px 8px 4px 0;
+        color: #7fc0ff;
+        text-decoration: none;
+        border: 1px solid #21344f;
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 13px;
+      }
+      .links a:hover {
+        border-color: #3a5c8f;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>BMK KOMET — DASHBOARD</h1>
+      <form method="POST" action="/logout">
+        <button type="submit">Sign out</button>
+      </form>
+    </header>
+    <a class="primary-link" href="/control">Open operator control →</a>
+    <div id="grid" class="grid"></div>
+
+    <script>
+      async function load() {
+        const courts = await fetch("/api/courts").then((r) => r.json());
+        const ids = new Set(courts.map((c) => c.id));
+        for (let i = 1; i <= 4; i++) ids.add(i);
+        const grid = document.getElementById("grid");
+        [...ids]
+          .sort((a, b) => a - b)
+          .forEach((id) => {
+            const c = courts.find((x) => x.id === id);
+            const status = c?.match
+              ? c.match.status +
+                " · " +
+                c.match.currentGame.home +
+                "–" +
+                c.match.currentGame.away
+              : "no match";
+            const div = document.createElement("div");
+            div.className = "court";
+            div.innerHTML =
+              "<h2>Court " + id + "</h2>" +
+              '<div class="status">' + status + "</div>" +
+              '<div class="links">' +
+              '<a href="/control">Control</a>' +
+              '<a href="/score/' + id + '" target="_blank">Score</a>' +
+              '<a href="/overlay/court/' + id + '" target="_blank">Overlay</a>' +
+              "</div>";
+            grid.appendChild(div);
+          });
+      }
+      load();
+    </script>
+  </body>
+</html>

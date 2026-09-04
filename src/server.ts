@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { createApp } from "./api/app.js";
+import { authConfigFromEnv } from "./api/auth.js";
 import { attachSockets } from "./api/sockets.js";
 import { CourtService } from "./domain/Court.js";
 import { MatchOrchestrator } from "./domain/MatchOrchestrator.js";
@@ -15,7 +16,11 @@ const orch = new MatchOrchestrator(new CourtService(COURT_COUNT));
 const store = new SqliteStore(DB_PATH);
 store.bind(orch);
 
-const app = createApp(orch);
+const app = createApp(orch, {
+  auth: authConfigFromEnv(),
+  sessionSecret: process.env.SESSION_SECRET ?? "change-me-in-production",
+  secureCookie: process.env.NODE_ENV === "production",
+});
 const httpServer = createServer(app);
 attachSockets(httpServer, orch);
 

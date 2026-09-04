@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Komet Ticker</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+        overflow: hidden;
+        font-family: "Segoe UI", Roboto, Arial, sans-serif;
+      }
+      /* Full-width bar anchored to the bottom of the OBS source. */
+      .ticker {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 56px;
+        display: flex;
+        align-items: center;
+        background: rgba(11, 22, 40, 0.9);
+        border-top: 3px solid #ffd200;
+        overflow: hidden;
+        opacity: 0;
+        transition: opacity 0.4s ease;
+      }
+      .ticker.show {
+        opacity: 1;
+      }
+      .track {
+        display: inline-block;
+        white-space: nowrap;
+        padding-left: 100%;
+        color: #fff;
+        font-size: 28px;
+        font-weight: 600;
+        will-change: transform;
+        animation: scroll linear infinite;
+      }
+      @keyframes scroll {
+        from {
+          transform: translateX(0);
+        }
+        to {
+          transform: translateX(-100%);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="bar" class="ticker">
+      <div id="track" class="track"></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      // URL is /overlay/court/:id/ticker → id is the second-to-last segment.
+      const parts = location.pathname.split("/").filter(Boolean);
+      const courtId = Number(parts[parts.length - 2]) || 1;
+      const bar = document.getElementById("bar");
+      const track = document.getElementById("track");
+
+      function render(snap) {
+        const text = snap && snap.tickerText ? String(snap.tickerText) : "";
+        if (!text) {
+          bar.classList.remove("show");
+          track.textContent = "";
+          return;
+        }
+        track.textContent = text;
+        // Scroll speed scales with text length for a steady reading pace.
+        const seconds = Math.max(8, Math.min(60, text.length * 0.35));
+        track.style.animationDuration = seconds + "s";
+        bar.classList.add("show");
+      }
+
+      fetch("/api/courts/" + courtId + "/match")
+        .then((r) => (r.ok ? r.json() : null))
+        .then(render)
+        .catch(() => {});
+
+      const socket = io();
+      socket.on("connect", () => socket.emit("join-court", courtId));
+      socket.on("court:update", render);
+    </script>
+  </body>
+</html>
