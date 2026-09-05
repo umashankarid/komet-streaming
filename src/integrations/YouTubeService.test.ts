@@ -74,6 +74,8 @@ describe("YouTubeApiService", () => {
       () => ({ id: "bcast-1" }),
       // 3) bind
       () => ({ id: "bcast-1" }),
+      // 4) fetch stream rtmp url (pinned streamId, no cached autoRtmpUrl)
+      () => ({ items: [{ cdn: { ingestionInfo: { ingestionAddress: "rtmp://a/live2", streamName: "k9" } } }] }),
     ]);
     const svc = new YouTubeApiService(
       { clientId: "c", clientSecret: "s", refreshToken: "r", streamId: "stream-9" },
@@ -82,9 +84,10 @@ describe("YouTubeApiService", () => {
     const handle = await svc.createBroadcast({ title: "Komet | A vs B" });
     expect(handle.broadcastId).toBe("bcast-1");
     expect(handle.watchUrl).toBe("https://www.youtube.com/watch?v=bcast-1");
+    expect(handle.rtmpUrl).toBe("rtmp://a/live2/k9");
 
-    // token, create, bind
-    expect(calls).toHaveLength(3);
+    // token, create, bind, rtmp-lookup
+    expect(calls).toHaveLength(4);
     expect(calls[0].url).toContain("oauth2.googleapis.com/token");
     expect(calls[1].url).toContain("/liveBroadcasts?part=");
     const createBody = JSON.parse((calls[1].init as { body: string }).body);
@@ -92,6 +95,7 @@ describe("YouTubeApiService", () => {
     expect(createBody.status.privacyStatus).toBe("unlisted");
     expect(calls[2].url).toContain("/liveBroadcasts/bind");
     expect(calls[2].url).toContain("streamId=stream-9");
+    expect(calls[3].url).toContain("/liveStreams?part=cdn&id=stream-9");
   });
 
   it("caches the access token across calls", async () => {
@@ -264,8 +268,10 @@ describe("YouTubeApiService", () => {
     );
     await svc.createBroadcast({ title: "First" });
     await svc.createBroadcast({ title: "Second" });
-    // liveStream is created only once.
-    const streamCreates = calls.filter((c) => c.url.includes("/liveStreams?part="));
+    // liveStream is created only once (POST with part=snippet,cdn,contentDetails).
+    const streamCreates = calls.filter((c) =>
+      c.url.includes("/liveStreams?part=snippet"),
+    );
     expect(streamCreates).toHaveLength(1);
   });
 

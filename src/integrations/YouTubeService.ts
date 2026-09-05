@@ -258,11 +258,40 @@ export class YouTubeApiService implements YouTubeService {
       { method: "POST" },
     );
 
+    // 3) Resolve the RTMP push URL for the bound stream. Prefer the cached one
+    // from auto-create; otherwise look it up so the media gateway always gets
+    // a target (also covers a pinned YOUTUBE_STREAM_ID).
+    let rtmpUrl = this.autoRtmpUrl;
+    if (!rtmpUrl) {
+      rtmpUrl = await this.fetchStreamRtmpUrl(streamId);
+    }
+
     return {
       broadcastId,
       watchUrl: `https://www.youtube.com/watch?v=${broadcastId}`,
-      rtmpUrl: this.autoRtmpUrl,
+      rtmpUrl,
     };
+  }
+
+  /** Look up a stream's RTMP push URL (ingestion address + key) by id. */
+  private async fetchStreamRtmpUrl(streamId: string): Promise<string | undefined> {
+    try {
+      const json = (await this.apiFetch(
+        `/liveStreams?part=cdn&id=${encodeURIComponent(streamId)}`,
+        { method: "GET" },
+      )) as {
+        items?: Array<{
+          cdn?: { ingestionInfo?: { ingestionAddress?: string; streamName?: string } };
+        }>;
+      };
+      const info = json.items?.[0]?.cdn?.ingestionInfo;
+      if (info?.ingestionAddress && info?.streamName) {
+        return `${info.ingestionAddress.replace(/\/$/, "")}/${info.streamName}`;
+      }
+    } catch {
+      // Non-fatal: gateway just won't be told the target.
+    }
+    return undefined;
   }
 
   /**
