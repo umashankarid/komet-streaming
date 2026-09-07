@@ -245,7 +245,14 @@ export class YouTubeApiService implements YouTubeService {
             privacyStatus: privacy,
             selfDeclaredMadeForKids: false,
           },
-          contentDetails: { enableAutoStart: true, enableAutoStop: true },
+          contentDetails: {
+            enableAutoStart: true,
+            enableAutoStop: true,
+            // Cut player buffering from ~30s to ~2-5s. "ultraLow" disables
+            // DVR/some features but is best for live sports interaction.
+            latencyPreference: "ultraLow",
+            enableDvr: false,
+          },
         },
       },
     )) as { id: string };
