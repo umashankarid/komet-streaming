@@ -344,7 +344,10 @@ export function createApiRouter(
             overlayUrl,
           });
         }
-        await youtube.transitionToLive(handle.broadcastId);
+        // No explicit transitionToLive: broadcasts are created with
+        // enableAutoStart, so YouTube goes live automatically once the gateway
+        // pushes video. Skipping it saves an API call (quota) and avoids the
+        // 403 "stream inactive" churn.
         res.json(
           orch.confirmStreamLive(courtId, handle.broadcastId),
         );

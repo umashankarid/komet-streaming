@@ -277,7 +277,8 @@ describe("streaming routes with a YouTube service", () => {
     expect(start.status).toBe(200);
     expect(start.body.youtubeStatus).toBe("live");
     expect(start.body.broadcastId).toBe("yt-777");
-    expect(calls).toEqual(["create:Komet Final", "live:yt-777"]);
+    // No transitionToLive call — broadcasts use enableAutoStart.
+    expect(calls).toEqual(["create:Komet Final"]);
 
     const stop = await request(app).post("/api/courts/1/streaming/stop");
     expect(stop.status).toBe(200);
