@@ -133,6 +133,11 @@ export function createApp(orch: MatchOrchestrator, opts: AppOptions): Express {
   app.get("/overlay/court/:id/ticker", (_req, res) =>
     res.sendFile(path.join(PUBLIC_DIR, "ticker.html")),
   );
+  // Broadcast overlay for burn-in (headless capture). Public: the gateway's
+  // Chromium cannot authenticate. Uses ?court=N&mode=score|match|full|none.
+  app.get("/broadcast-overlay", (_req, res) =>
+    res.sendFile(path.join(PUBLIC_DIR, "broadcast-overlay.html")),
+  );
 
   // --- Protected human pages ---
   const requirePageAuth = (req: Request, res: Response, next: NextFunction) => {

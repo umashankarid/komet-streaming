@@ -319,7 +319,18 @@ export function createApiRouter(
                 "Cannot tell the media gateway where to push video.",
             );
           }
-          await gateway.startCourt(courtId, handle.rtmpUrl);
+          // Overlay burn-in: when the chosen mode is not "none", tell the
+          // gateway to composite the broadcast overlay page for this court.
+          const mode = starting.overlayMode;
+          const wantOverlay = mode !== undefined && mode !== "none";
+          const publicBase = process.env.PUBLIC_BASE_URL || "";
+          const overlayUrl = wantOverlay && publicBase
+            ? `${publicBase.replace(/\/$/, "")}/broadcast-overlay?court=${courtId}&mode=${mode}`
+            : undefined;
+          await gateway.startCourt(courtId, handle.rtmpUrl, {
+            overlay: wantOverlay && Boolean(overlayUrl),
+            overlayUrl,
+          });
         }
         await youtube.transitionToLive(handle.broadcastId);
         res.json(

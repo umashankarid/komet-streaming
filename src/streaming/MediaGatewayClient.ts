@@ -26,7 +26,11 @@ export interface GatewayCourtStatus {
 
 export interface MediaGateway {
   readonly enabled: boolean;
-  startCourt(courtId: number, rtmpUrl: string): Promise<GatewayStartResult>;
+  startCourt(
+    courtId: number,
+    rtmpUrl: string,
+    opts?: { overlay?: boolean; overlayUrl?: string },
+  ): Promise<GatewayStartResult>;
   stopCourt(courtId: number): Promise<{ ok: boolean; stopped?: boolean }>;
   /** All running courts' status (camera connectivity, media). */
   getStatus(): Promise<GatewayCourtStatus[]>;
@@ -73,11 +77,19 @@ export class MediaGatewayClient implements MediaGateway {
     return h;
   }
 
-  async startCourt(courtId: number, rtmpUrl: string): Promise<GatewayStartResult> {
+  async startCourt(
+    courtId: number,
+    rtmpUrl: string,
+    opts: { overlay?: boolean; overlayUrl?: string } = {},
+  ): Promise<GatewayStartResult> {
     const res = await this.fetchImpl(`${this.baseUrl}/courts/${courtId}/start`, {
       method: "POST",
       headers: this.headers(),
-      body: JSON.stringify({ rtmpUrl }),
+      body: JSON.stringify({
+        rtmpUrl,
+        overlay: Boolean(opts.overlay),
+        overlayUrl: opts.overlayUrl,
+      }),
     });
     if (!res.ok) {
       throw new Error(

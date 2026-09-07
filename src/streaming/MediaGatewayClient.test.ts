@@ -54,7 +54,10 @@ describe("MediaGatewayClient", () => {
     expect(calls[0].url).toBe("http://gw:8080/courts/1/start");
     const init = calls[0].init as { headers: Record<string, string>; body: string };
     expect(init.headers.Authorization).toBe("Bearer tok");
-    expect(JSON.parse(init.body)).toEqual({ rtmpUrl: "rtmp://a/live2/key1" });
+    expect(JSON.parse(init.body)).toEqual({
+      rtmpUrl: "rtmp://a/live2/key1",
+      overlay: false,
+    });
   });
 
   it("stops a court", async () => {
@@ -63,6 +66,21 @@ describe("MediaGatewayClient", () => {
     const res = await g.stopCourt(2);
     expect(res).toEqual({ ok: true, stopped: true });
     expect(calls[0].url).toBe("http://gw:8080/courts/2/stop");
+  });
+
+  it("sends overlay flag and url when starting with overlay", async () => {
+    const { fn, calls } = fakeFetch({ ok: true, courtId: 1 });
+    const g = new MediaGatewayClient({ baseUrl: "http://gw:8080" }, fn);
+    await g.startCourt(1, "rtmp://a/live2/k", {
+      overlay: true,
+      overlayUrl: "https://stream/broadcast-overlay?court=1&mode=full",
+    });
+    const body = JSON.parse((calls[0].init as { body: string }).body);
+    expect(body).toEqual({
+      rtmpUrl: "rtmp://a/live2/k",
+      overlay: true,
+      overlayUrl: "https://stream/broadcast-overlay?court=1&mode=full",
+    });
   });
 
   it("omits the Authorization header when no token", async () => {
