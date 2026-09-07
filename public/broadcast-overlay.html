@@ -62,7 +62,7 @@
       .sb-banner.show { display: block; }
       .sb-row {
         display: grid;
-        grid-template-columns: 1fr auto auto;
+        grid-template-columns: 22px 1fr auto auto auto;
         align-items: center;
         background: rgba(11, 22, 40, 0.94);
       }
@@ -71,6 +71,30 @@
         border-left: 8px solid #00b3ff;
         border-top: 1px solid rgba(255, 255, 255, 0.08);
       }
+      /* Server indicator: a shuttle dot, shown only for the serving side. */
+      .sb-serve {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin-left: 8px;
+        background: transparent;
+      }
+      .sb-serve.on {
+        background: #37d67a;
+        box-shadow: 0 0 8px #37d67a;
+      }
+      /* Per-game (sets) scores, e.g. 21 18 11. */
+      .sb-sets {
+        display: flex;
+        gap: 10px;
+        padding: 0 14px;
+        font-size: 22px;
+        font-variant-numeric: tabular-nums;
+        color: #cfe0f2;
+      }
+      .sb-sets .g { min-width: 22px; text-align: center; }
+      .sb-sets .g.done { color: #9fb3c8; }
+      .sb-sets .g.cur { color: #fff; font-weight: 700; }
       .sb-name {
         padding: 14px 20px;
         font-size: 30px;
@@ -130,12 +154,16 @@
       <div class="sb-banner" id="banner"></div>
       <div class="sb-header" id="court-label">Court</div>
       <div class="sb-row home">
+        <span class="sb-serve" id="home-serve"></span>
         <div class="sb-name" id="home-name">—</div>
+        <div class="sb-sets" id="home-sets"></div>
         <div class="sb-games" id="home-games">0</div>
         <div class="sb-points" id="home-points">0</div>
       </div>
       <div class="sb-row away">
+        <span class="sb-serve" id="away-serve"></span>
         <div class="sb-name" id="away-name">—</div>
+        <div class="sb-sets" id="away-sets"></div>
         <div class="sb-games" id="away-games">0</div>
         <div class="sb-points" id="away-points">0</div>
       </div>
@@ -164,11 +192,45 @@
       const showPoints = mode === "score" || mode === "full";
       const showTicker = mode === "full";
 
+      // Server tracking: whoever scored the most recent point serves next.
+      // Unknown (no dot) until the first point of the match.
+      let lastPts = { home: 0, away: 0 };
+      let server = null; // "home" | "away" | null
+
+      function updateServer(cur) {
+        if (!cur) return;
+        const h = cur.home || 0;
+        const a = cur.away || 0;
+        // On a fresh game (both 0) keep prior server; only change when a side's
+        // points increase.
+        if (h > lastPts.home && h + a > 0) server = "home";
+        else if (a > lastPts.away && h + a > 0) server = "away";
+        // Reset the "last point" baseline; if the whole game reset to 0-0 mid
+        // match (next game), keep the server from the last point scored.
+        lastPts = { home: h, away: a };
+      }
+
+      // Render per-game columns: finished games + the current game.
+      function renderSets(side, snap) {
+        const el = $(side + "-sets");
+        if (!showPoints) { el.innerHTML = ""; return; }
+        const cells = [];
+        (snap.games || []).forEach((g) => {
+          cells.push('<span class="g done">' + (g[side] ?? 0) + "</span>");
+        });
+        // Current game (only if match not finished, else it's already in games).
+        if (snap.status !== "finished") {
+          cells.push('<span class="g cur">' + (snap.currentGame[side] ?? 0) + "</span>");
+        }
+        el.innerHTML = cells.join("");
+      }
+
       function render(snap) {
         const board = $("board");
         if (!snap || !showScoreboard) {
           board.classList.remove("show");
         } else {
+          updateServer(snap.currentGame);
           $("court-label").textContent =
             (snap.courtName || "Court " + snap.courtId) +
             " · " + snap.status.toUpperCase();
@@ -183,6 +245,11 @@
           $("away-name").textContent = teamName(snap.away);
           $("home-games").textContent = snap.gamesWon.home;
           $("away-games").textContent = snap.gamesWon.away;
+          renderSets("home", snap);
+          renderSets("away", snap);
+          // Server dot (only meaningful when points are shown and known).
+          $("home-serve").classList.toggle("on", showPoints && server === "home");
+          $("away-serve").classList.toggle("on", showPoints && server === "away");
           // In "match" mode we hide live points (show dashes).
           $("home-points").textContent = showPoints ? snap.currentGame.home : "";
           $("away-points").textContent = showPoints ? snap.currentGame.away : "";
