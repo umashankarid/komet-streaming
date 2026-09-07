@@ -35,6 +35,10 @@ export interface YouTubeService {
     title: string;
     description?: string;
     privacy?: "public" | "unlisted" | "private";
+    reusableStream?: {
+      get(): { streamId: string; rtmpUrl: string } | undefined;
+      save(streamId: string, rtmpUrl: string): void;
+    };
   }): Promise<BroadcastHandle>;
   /** Transition a broadcast to the "live" state. */
   transitionToLive(broadcastId: string): Promise<void>;
@@ -224,6 +228,15 @@ export class YouTubeApiService implements YouTubeService {
     title: string;
     description?: string;
     privacy?: "public" | "unlisted" | "private";
+    /**
+     * Optional reusable-stream hooks. When provided, the broadcast binds to a
+     * persisted per-court stream (created once, reused across matches) instead
+     * of creating a new stream every time — avoids API rate limits.
+     */
+    reusableStream?: {
+      get(): { streamId: string; rtmpUrl: string } | undefined;
+      save(streamId: string, rtmpUrl: string): void;
+    };
   }): Promise<BroadcastHandle> {
     const privacy = params.privacy ?? this.cfg.privacy ?? "unlisted";
     // 1) Create the broadcast (the watch page / future archived video).
@@ -254,15 +267,26 @@ export class YouTubeApiService implements YouTubeService {
     )) as { id: string };
     const broadcastId = created.id;
 
-    // 2) Resolve the stream to bind. If a streamId is pinned, reuse it and look
-    // up its RTMP URL. Otherwise create a FRESH stream for THIS broadcast so
-    // each match routes to its own broadcast (reusing one stream causes a new
-    // match's video to keep landing on the previous broadcast).
+    // 2) Resolve the stream to bind, in priority order:
+    //    a) a pinned YOUTUBE_STREAM_ID (fixed for all courts), else
+    //    b) a persisted reusable per-court stream (reused across matches), else
+    //    c) create a fresh stream and persist it for reuse.
     let streamId;
     let rtmpUrl;
     if (this.cfg.streamId) {
       streamId = this.cfg.streamId;
       rtmpUrl = await this.fetchStreamRtmpUrl(streamId);
+    } else if (params.reusableStream) {
+      const existing = params.reusableStream.get();
+      if (existing) {
+        streamId = existing.streamId;
+        rtmpUrl = existing.rtmpUrl;
+      } else {
+        const fresh = await this.createFreshStream(params.title);
+        streamId = fresh.streamId;
+        rtmpUrl = fresh.rtmpUrl;
+        if (rtmpUrl) params.reusableStream.save(streamId, rtmpUrl);
+      }
     } else {
       const fresh = await this.createFreshStream(params.title);
       streamId = fresh.streamId;

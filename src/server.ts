@@ -11,6 +11,7 @@ import { CameraPoller } from "./streaming/CameraPoller.js";
 import { SqliteStore } from "./persistence/SqliteStore.js";
 import { YouTubeAuthService } from "./youtube/YouTubeAuthService.js";
 import { YouTubeTokenStore } from "./youtube/YouTubeTokenStore.js";
+import { CourtStreamStore } from "./youtube/CourtStreamStore.js";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const COURT_COUNT = Number(process.env.COURT_COUNT ?? 4);
@@ -45,6 +46,9 @@ const youtube = youTubeServiceFromEnv(
 // Media gateway client (per-court FFmpeg control over the internal network).
 const gateway = mediaGatewayFromEnv();
 
+// Reusable per-court YouTube stream store (shares the SQLite DB).
+const courtStreams = new CourtStreamStore(store.database);
+
 // Interactive OAuth service (needs client id/secret + redirect uri).
 const oauthClientId = process.env.YOUTUBE_CLIENT_ID;
 const oauthClientSecret = process.env.YOUTUBE_CLIENT_SECRET;
@@ -69,6 +73,7 @@ const app = createApp(orch, {
     : process.env.NODE_ENV === "production",
   youtube,
   gateway,
+  courtStreams,
   authRouter,
 });
 const httpServer = createServer(app);

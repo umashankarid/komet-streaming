@@ -279,6 +279,41 @@ describe("YouTubeApiService", () => {
     expect(h2.rtmpUrl).toBe("rtmp://a/live2/k2");
   });
 
+  it("reuses a persisted per-court stream across broadcasts (quota-friendly)", async () => {
+    const { fn, calls } = fakeFetch([
+      () => ({ access_token: "tok", expires_in: 3600 }),
+      // First broadcast: create broadcast, create stream (persisted), bind
+      () => ({ id: "b1" }),
+      () => ({ id: "court1-stream", cdn: { ingestionInfo: { ingestionAddress: "rtmp://a/live2", streamName: "kkk" } } }),
+      () => ({ id: "b1" }),
+      // Second broadcast: create broadcast, bind (NO new stream)
+      () => ({ id: "b2" }),
+      () => ({ id: "b2" }),
+    ]);
+    const svc = new YouTubeApiService(
+      { clientId: "c", clientSecret: "s", refreshToken: "r" },
+      fn,
+    );
+    // Simulate the per-court store.
+    let saved: { streamId: string; rtmpUrl: string } | undefined;
+    const reusableStream = {
+      get: () => saved,
+      save: (streamId: string, rtmpUrl: string) => { saved = { streamId, rtmpUrl }; },
+    };
+
+    const h1 = await svc.createBroadcast({ title: "First", reusableStream });
+    const h2 = await svc.createBroadcast({ title: "Second", reusableStream });
+
+    // Stream created ONCE, reused on the second broadcast.
+    const streamCreates = calls.filter((c) => c.url.includes("/liveStreams?part=snippet"));
+    expect(streamCreates).toHaveLength(1);
+    expect(h1.rtmpUrl).toBe("rtmp://a/live2/kkk");
+    expect(h2.rtmpUrl).toBe("rtmp://a/live2/kkk");
+    // Both broadcasts are still distinct.
+    expect(h1.broadcastId).toBe("b1");
+    expect(h2.broadcastId).toBe("b2");
+  });
+
   it("tolerates a 403 on transitionToLive (autoStart handles it)", async () => {
     let n = 0;
     const fn: FetchLike = async () => {

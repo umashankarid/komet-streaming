@@ -9,6 +9,7 @@ import {
   NoopMediaGateway,
   type MediaGateway,
 } from "../streaming/MediaGatewayClient.js";
+import type { CourtStreamStore } from "../youtube/CourtStreamStore.js";
 import {
   DEFAULT_SCORING,
   type ScoringConfig,
@@ -101,6 +102,7 @@ export function createApiRouter(
   orch: MatchOrchestrator,
   youtube: YouTubeService = new NoopYouTubeService(),
   gateway: MediaGateway = new NoopMediaGateway(),
+  courtStreams?: CourtStreamStore,
 ): Router {
   const router = Router();
 
@@ -309,6 +311,16 @@ export function createApiRouter(
       try {
         const handle = await youtube.createBroadcast({
           title: starting.title ?? orch.suggestTitle(courtId),
+          reusableStream: courtStreams
+            ? {
+                get: () => {
+                  const s = courtStreams.get(courtId);
+                  return s ? { streamId: s.streamId, rtmpUrl: s.rtmpUrl } : undefined;
+                },
+                save: (streamId, rtmpUrl) =>
+                  courtStreams.save(courtId, streamId, rtmpUrl),
+              }
+            : undefined,
         });
         // Tell the media gateway to push this court's SRT input to the
         // broadcast's RTMP target, so video actually reaches YouTube.

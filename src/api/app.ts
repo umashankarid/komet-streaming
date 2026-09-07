@@ -34,6 +34,8 @@ export interface AppOptions {
   youtube?: YouTubeService;
   /** Optional media gateway client; defaults to a no-op when omitted. */
   gateway?: MediaGateway;
+  /** Optional per-court reusable stream store. */
+  courtStreams?: import("../youtube/CourtStreamStore.js").CourtStreamStore;
   /** Optional router for the "Login with YouTube" OAuth flow. */
   authRouter?: import("express").Router;
 }
@@ -124,7 +126,7 @@ export function createApp(orch: MatchOrchestrator, opts: AppOptions): Express {
     if (req.method === "GET" || isAuthed(req)) return next();
     return res.status(401).json({ error: "Authentication required" });
   };
-  app.use("/api", requireApiAuth, createApiRouter(orch, opts.youtube, opts.gateway));
+  app.use("/api", requireApiAuth, createApiRouter(orch, opts.youtube, opts.gateway, opts.courtStreams));
 
   // --- Public overlay (OBS browser source cannot authenticate) ---
   app.get("/overlay/court/:id", (_req, res) =>
