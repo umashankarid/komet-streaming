@@ -150,10 +150,6 @@ export class YouTubeApiService implements YouTubeService {
   private readonly fetchImpl: FetchLike;
   private accessToken?: string;
   private accessTokenExpiry = 0;
-  /** Cached id of a reusable stream we auto-created (when none configured). */
-  private autoStreamId?: string;
-  /** Cached RTMP push URL for the auto-created stream. */
-  private autoRtmpUrl?: string;
 
   constructor(cfg: YouTubeConfig, fetchImpl?: FetchLike) {
     this.cfg = cfg;
@@ -258,26 +254,62 @@ export class YouTubeApiService implements YouTubeService {
     )) as { id: string };
     const broadcastId = created.id;
 
-    // 2) Bind the broadcast to a reusable stream (configured or auto-created).
-    const streamId = await this.resolveStreamId(params.title);
+    // 2) Resolve the stream to bind. If a streamId is pinned, reuse it and look
+    // up its RTMP URL. Otherwise create a FRESH stream for THIS broadcast so
+    // each match routes to its own broadcast (reusing one stream causes a new
+    // match's video to keep landing on the previous broadcast).
+    let streamId;
+    let rtmpUrl;
+    if (this.cfg.streamId) {
+      streamId = this.cfg.streamId;
+      rtmpUrl = await this.fetchStreamRtmpUrl(streamId);
+    } else {
+      const fresh = await this.createFreshStream(params.title);
+      streamId = fresh.streamId;
+      rtmpUrl = fresh.rtmpUrl;
+    }
+
+    // 3) Bind the broadcast to that stream.
     await this.apiFetch(
       `/liveBroadcasts/bind?id=${encodeURIComponent(broadcastId)}&streamId=${encodeURIComponent(streamId)}&part=id,contentDetails`,
       { method: "POST" },
     );
-
-    // 3) Resolve the RTMP push URL for the bound stream. Prefer the cached one
-    // from auto-create; otherwise look it up so the media gateway always gets
-    // a target (also covers a pinned YOUTUBE_STREAM_ID).
-    let rtmpUrl = this.autoRtmpUrl;
-    if (!rtmpUrl) {
-      rtmpUrl = await this.fetchStreamRtmpUrl(streamId);
-    }
 
     return {
       broadcastId,
       watchUrl: `https://www.youtube.com/watch?v=${broadcastId}`,
       rtmpUrl,
     };
+  }
+
+  /** Create a new reusable stream and return its id + RTMP push URL. */
+  private async createFreshStream(
+    titleHint: string,
+  ): Promise<{ streamId: string; rtmpUrl?: string }> {
+    const created = (await this.apiFetch(
+      "/liveStreams?part=snippet,cdn,contentDetails",
+      {
+        method: "POST",
+        body: {
+          snippet: { title: `Komet — ${titleHint}`.slice(0, 128) },
+          cdn: {
+            frameRate: "variable",
+            ingestionType: "rtmp",
+            resolution: "variable",
+          },
+          contentDetails: { isReusable: true },
+        },
+      },
+    )) as {
+      id: string;
+      cdn?: { ingestionInfo?: { ingestionAddress?: string; streamName?: string } };
+    };
+    const info = created.cdn?.ingestionInfo;
+    let rtmpUrl;
+    if (info?.ingestionAddress && info?.streamName) {
+      rtmpUrl = `${info.ingestionAddress.replace(/\/$/, "")}/${info.streamName}`;
+    }
+    return { streamId: created.id, rtmpUrl };
   }
 
   /** Look up a stream's RTMP push URL (ingestion address + key) by id. */
@@ -295,45 +327,6 @@ export class YouTubeApiService implements YouTubeService {
       return `${info.ingestionAddress.replace(/\/$/, "")}/${info.streamName}`;
     }
     return undefined;
-  }
-
-  /**
-   * Return the stream id to bind to: the configured one, a previously
-   * auto-created one, or a newly created reusable stream (cached for reuse).
-   * When auto-creating, also caches the full RTMP push URL so the media
-   * gateway can be told where to send video.
-   */
-  private async resolveStreamId(titleHint: string): Promise<string> {
-    if (this.cfg.streamId) return this.cfg.streamId;
-    if (this.autoStreamId) return this.autoStreamId;
-    const created = (await this.apiFetch(
-      "/liveStreams?part=snippet,cdn,contentDetails",
-      {
-        method: "POST",
-        body: {
-          snippet: { title: `Komet — ${titleHint}`.slice(0, 128) },
-          cdn: {
-            frameRate: "variable",
-            ingestionType: "rtmp",
-            resolution: "variable",
-          },
-          contentDetails: { isReusable: true },
-        },
-      },
-    )) as {
-      id: string;
-      cdn?: {
-        ingestionInfo?: { ingestionAddress?: string; streamName?: string };
-      };
-    };
-    this.autoStreamId = created.id;
-    const info = created.cdn?.ingestionInfo;
-    if (info?.ingestionAddress && info?.streamName) {
-      // Normalize (YouTube returns address without trailing slash).
-      const addr = info.ingestionAddress.replace(/\/$/, "");
-      this.autoRtmpUrl = `${addr}/${info.streamName}`;
-    }
-    return created.id;
   }
 
   async transitionToLive(broadcastId: string): Promise<void> {
