@@ -275,21 +275,17 @@ export class YouTubeApiService implements YouTubeService {
 
   /** Look up a stream's RTMP push URL (ingestion address + key) by id. */
   private async fetchStreamRtmpUrl(streamId: string): Promise<string | undefined> {
-    try {
-      const json = (await this.apiFetch(
-        `/liveStreams?part=cdn&id=${encodeURIComponent(streamId)}`,
-        { method: "GET" },
-      )) as {
-        items?: Array<{
-          cdn?: { ingestionInfo?: { ingestionAddress?: string; streamName?: string } };
-        }>;
-      };
-      const info = json.items?.[0]?.cdn?.ingestionInfo;
-      if (info?.ingestionAddress && info?.streamName) {
-        return `${info.ingestionAddress.replace(/\/$/, "")}/${info.streamName}`;
-      }
-    } catch {
-      // Non-fatal: gateway just won't be told the target.
+    const json = (await this.apiFetch(
+      `/liveStreams?part=cdn&id=${encodeURIComponent(streamId)}`,
+      { method: "GET" },
+    )) as {
+      items?: Array<{
+        cdn?: { ingestionInfo?: { ingestionAddress?: string; streamName?: string } };
+      }>;
+    };
+    const info = json.items?.[0]?.cdn?.ingestionInfo;
+    if (info?.ingestionAddress && info?.streamName) {
+      return `${info.ingestionAddress.replace(/\/$/, "")}/${info.streamName}`;
     }
     return undefined;
   }

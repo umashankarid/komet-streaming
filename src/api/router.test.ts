@@ -358,4 +358,34 @@ describe("streaming routes with a media gateway", () => {
     await request(app).post("/api/courts/1/streaming/start").send({ title: "T" });
     expect(called).toBe(false);
   });
+
+  it("errors when the gateway is enabled but no rtmp url was resolved", async () => {
+    const youtubeNoRtmp = {
+      enabled: true,
+      async createBroadcast() {
+        return { broadcastId: "yt-1" }; // no rtmpUrl
+      },
+      async transitionToLive() {},
+      async completeBroadcast() {},
+    };
+    const gateway = {
+      enabled: true,
+      async startCourt(courtId: number) {
+        return { ok: true, courtId };
+      },
+      async stopCourt() {
+        return { ok: true, stopped: true };
+      },
+      async getStatus() {
+        return [];
+      },
+    };
+    const app = appWith(youtubeNoRtmp, gateway);
+    const res = await request(app)
+      .post("/api/courts/1/streaming/start")
+      .send({ title: "T" });
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/RTMP URL/);
+    expect(res.body.streaming.youtubeStatus).toBe("error");
+  });
 });

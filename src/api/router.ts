@@ -302,14 +302,22 @@ export function createApiRouter(
         });
         // Tell the media gateway to push this court's SRT input to the
         // broadcast's RTMP target, so video actually reaches YouTube.
-        if (gateway.enabled && handle.rtmpUrl) {
+        if (gateway.enabled) {
+          if (!handle.rtmpUrl) {
+            throw new Error(
+              "Could not resolve the YouTube stream's RTMP URL (no ingestion info). " +
+                "Cannot tell the media gateway where to push video.",
+            );
+          }
           await gateway.startCourt(courtId, handle.rtmpUrl);
         }
         await youtube.transitionToLive(handle.broadcastId);
-        res.json(orch.confirmStreamLive(courtId, handle.broadcastId));
+        res.json(
+          orch.confirmStreamLive(courtId, handle.broadcastId),
+        );
       } catch (err) {
         res.status(502).json({
-          error: `YouTube start failed: ${(err as Error).message}`,
+          error: `Stream start failed: ${(err as Error).message}`,
           streaming: orch.failStream(courtId, (err as Error).message),
         });
       }
