@@ -152,6 +152,16 @@ export function createApiRouter(
     }),
   );
 
+  // Remove/clear the match on a court. Streaming state is unaffected.
+  router.delete(
+    "/courts/:courtId/match",
+    handle((req, res) => {
+      const courtId = parseCourtId(req);
+      orch.clearMatch(courtId);
+      res.json({ ok: true, courtId });
+    }),
+  );
+
   router.post(
     "/courts/:courtId/match",
     handle((req, res) => {

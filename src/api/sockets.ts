@@ -32,5 +32,9 @@ export function attachSockets(
     io.to(`court:${courtId}`).emit("streaming:update", snapshot);
   });
 
+  orch.onMatchCleared((courtId) => {
+    io.to(`court:${courtId}`).emit("court:cleared", { courtId });
+  });
+
   return io;
 }

@@ -23,6 +23,7 @@ export class MatchOrchestrator {
   private readonly courts: CourtService;
   private readonly listeners = new Set<CourtUpdateListener>();
   private readonly streamingListeners = new Set<StreamingUpdateListener>();
+  private readonly clearedListeners = new Set<(courtId: number) => void>();
   private seq = 0;
 
   constructor(courts: CourtService = new CourtService()) {
@@ -33,6 +34,12 @@ export class MatchOrchestrator {
   onUpdate(listener: CourtUpdateListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Subscribe to match-cleared events. Returns an unsubscribe function. */
+  onMatchCleared(listener: (courtId: number) => void): () => void {
+    this.clearedListeners.add(listener);
+    return () => this.clearedListeners.delete(listener);
   }
 
   /** Subscribe to streaming-state updates. Returns an unsubscribe function. */
@@ -48,6 +55,13 @@ export class MatchOrchestrator {
 
   listCourts(): Court[] {
     return this.courts.listCourts();
+  }
+
+  /** Remove the match from a court (does not affect streaming state). */
+  clearMatch(courtId: number): void {
+    const court = this.ensureCourt(courtId);
+    court.clearMatch();
+    for (const l of this.clearedListeners) l(courtId);
   }
 
   /** Create and assign a new match to a court, replacing any current match. */

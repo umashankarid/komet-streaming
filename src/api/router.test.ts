@@ -96,6 +96,15 @@ describe("REST API", () => {
     expect(res.body.courtId).toBe(2);
   });
 
+  it("clears a match via DELETE", async () => {
+    await request(app).post("/api/courts/2/match").send(teams);
+    const del = await request(app).delete("/api/courts/2/match");
+    expect(del.status).toBe(200);
+    expect(del.body).toEqual({ ok: true, courtId: 2 });
+    const after = await request(app).get("/api/courts/2/match");
+    expect(after.status).toBe(404);
+  });
+
   it("accepts custom scoring, court name and banner", async () => {
     const res = await request(app)
       .post("/api/courts/1/match")

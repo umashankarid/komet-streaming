@@ -251,6 +251,7 @@
               ? '<button data-next="' + courtId + '">Next game</button>'
               : "") +
             '<button data-ticker="' + courtId + '">Update ticker</button>' +
+            '<button data-clear="' + courtId + '" style="background:#5a1f1f">Clear match</button>' +
             "</div>";
         }
         if (!existing) document.getElementById("grid").appendChild(node);
@@ -426,6 +427,14 @@
           const id = t.dataset.ticker;
           const text = document.getElementById("ticker-" + id).value;
           await api("/courts/" + id + "/match/ticker", { text });
+        } else if (t.dataset.clear) {
+          const id = t.dataset.clear;
+          if (!confirm("Remove the match on Court " + id + "? (Streaming is not affected.)")) return;
+          const res = await fetch("/api/courts/" + id + "/match", { method: "DELETE" });
+          if (!res.ok) {
+            const e = await res.json().catch(() => ({}));
+            alert(e.error || "Failed to clear match");
+          }
         } else if (t.dataset.streamStart) {
           const id = t.dataset.streamStart;
           const st = streaming.get(Number(id));
@@ -471,6 +480,10 @@
       socket.on("streaming:update", (snap) => {
         streaming.set(snap.courtId, snap);
         renderStreaming(snap.courtId);
+      });
+      socket.on("court:cleared", (msg) => {
+        state.delete(msg.courtId);
+        renderCourt(msg.courtId);
       });
 
       // --- YouTube account (Login with YouTube) ---

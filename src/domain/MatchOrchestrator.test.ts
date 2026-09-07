@@ -87,6 +87,16 @@ describe("MatchOrchestrator", () => {
     expect(orch.snapshot(2)).toBeUndefined();
   });
 
+  it("clears a match and notifies cleared listeners", () => {
+    const cleared = vi.fn();
+    orch.onMatchCleared(cleared);
+    orch.createMatch({ courtId: 1, home, away });
+    expect(orch.snapshot(1)).toBeDefined();
+    orch.clearMatch(1);
+    expect(orch.snapshot(1)).toBeUndefined();
+    expect(cleared).toHaveBeenCalledWith(1);
+  });
+
   describe("streaming orchestration", () => {
     it("exposes a default streaming snapshot for any court (no match needed)", () => {
       const snap = orch.streamingSnapshot(2);
