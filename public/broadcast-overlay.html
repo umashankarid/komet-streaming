@@ -19,7 +19,10 @@
         margin: 0;
         width: 1920px;
         height: 1080px;
-        background: transparent;
+        /* Chroma-key background: FFmpeg colorkeys this exact green out so only
+         * the scoreboard/ticker composite over the video. Use a pure green not
+         * present in the UI. */
+        background: #00ff00;
         overflow: hidden;
         font-family: "Segoe UI", Roboto, Arial, sans-serif;
         color: #fff;
