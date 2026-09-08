@@ -313,6 +313,21 @@ describe("YouTubeApiService", () => {
     expect(h1.broadcastId).toBe("b1");
     expect(h2.broadcastId).toBe("b2");
   });
+  it("deletes a broadcast via the API", async () => {
+    const { fn, calls } = fakeFetch([
+      () => ({ access_token: "tok", expires_in: 3600 }),
+      () => ({}),
+    ]);
+    const svc = new YouTubeApiService(
+      { clientId: "c", clientSecret: "s", refreshToken: "r", streamId: "s9" },
+      fn,
+    );
+    await svc.deleteBroadcast("bcast-9");
+    const del = calls.find((c) => c.url.includes("/liveBroadcasts?id=bcast-9"));
+    expect(del).toBeDefined();
+    expect((del!.init as { method: string }).method).toBe("DELETE");
+  });
+
 
   it("tolerates a 403 on transitionToLive (autoStart handles it)", async () => {
     let n = 0;

@@ -316,6 +316,7 @@ describe("streaming routes with a media gateway", () => {
     return a;
   }
 
+  const deleted: string[] = [];
   const youtube = {
     enabled: true,
     async createBroadcast() {
@@ -323,7 +324,31 @@ describe("streaming routes with a media gateway", () => {
     },
     async transitionToLive() {},
     async completeBroadcast() {},
+    async deleteBroadcast(id: string) { deleted.push(id); },
   };
+
+  it("deletes the created broadcast if the gateway start fails", async () => {
+    deleted.length = 0;
+    const gateway = {
+      enabled: true,
+      async startCourt() {
+        throw new Error("gateway down");
+      },
+      async stopCourt() {
+        return { ok: true, stopped: true };
+      },
+      async getStatus() {
+        return [];
+      },
+    };
+    const app = appWith(youtube, gateway);
+    const res = await request(app)
+      .post("/api/courts/1/streaming/start")
+      .send({ title: "T" });
+    expect(res.status).toBe(502);
+    // The orphaned broadcast must be cleaned up.
+    expect(deleted).toContain("yt-1");
+  });
 
   it("tells the gateway to start the court with the broadcast rtmp url", async () => {
     const calls: string[] = [];

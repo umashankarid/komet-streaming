@@ -308,6 +308,7 @@ export function createApiRouter(
       // Enter "starting" first so the state machine validates the transition
       // and the UI reflects progress.
       const starting = orch.requestStreamStart(courtId, { title, overlayMode });
+      let createdBroadcastId: string | undefined;
       try {
         const handle = await youtube.createBroadcast({
           title: starting.title ?? orch.suggestTitle(courtId),
@@ -322,6 +323,7 @@ export function createApiRouter(
               }
             : undefined,
         });
+        createdBroadcastId = handle.broadcastId;
         // Tell the media gateway to push this court's SRT input to the
         // broadcast's RTMP target, so video actually reaches YouTube.
         if (gateway.enabled) {
@@ -352,6 +354,16 @@ export function createApiRouter(
           orch.confirmStreamLive(courtId, handle.broadcastId),
         );
       } catch (err) {
+        // Clean up the just-created broadcast so a failed start does not leave
+        // an orphaned "upcoming" broadcast piling up on the channel (which then
+        // trips YouTube's live-broadcast rate limit).
+        if (createdBroadcastId) {
+          try {
+            await youtube.deleteBroadcast(createdBroadcastId);
+          } catch {
+            /* best effort */
+          }
+        }
         res.status(502).json({
           error: `Stream start failed: ${(err as Error).message}`,
           streaming: orch.failStream(courtId, (err as Error).message),

@@ -44,6 +44,8 @@ export interface YouTubeService {
   transitionToLive(broadcastId: string): Promise<void>;
   /** Transition a broadcast to "complete" (ends the stream/archives it). */
   completeBroadcast(broadcastId: string): Promise<void>;
+  /** Delete a broadcast (used to clean up after a failed start). */
+  deleteBroadcast(broadcastId: string): Promise<void>;
 }
 
 /** Fetch signature (injectable for tests; defaults to global fetch). */
@@ -139,6 +141,10 @@ export class NoopYouTubeService implements YouTubeService {
   async completeBroadcast(): Promise<void> {
     /* no-op */
   }
+
+  async deleteBroadcast(): Promise<void> {
+    /* no-op */
+  }
 }
 
 const OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -221,7 +227,9 @@ export class YouTubeApiService implements YouTubeService {
         `YouTube API ${init.method} ${pathAndQuery} failed (${res.status}): ${await res.text()}`,
       );
     }
-    return res.json();
+    // DELETE and some transitions return an empty body; tolerate that.
+    const text = await res.text();
+    return text ? JSON.parse(text) : {};
   }
 
   async createBroadcast(params: {
@@ -375,6 +383,13 @@ export class YouTubeApiService implements YouTubeService {
     await this.apiFetch(
       `/liveBroadcasts/transition?broadcastStatus=complete&id=${encodeURIComponent(broadcastId)}&part=id,status`,
       { method: "POST" },
+    );
+  }
+
+  async deleteBroadcast(broadcastId: string): Promise<void> {
+    await this.apiFetch(
+      `/liveBroadcasts?id=${encodeURIComponent(broadcastId)}`,
+      { method: "DELETE" },
     );
   }
 }
