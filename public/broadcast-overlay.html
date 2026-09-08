@@ -62,7 +62,7 @@
       .sb-banner.show { display: block; }
       .sb-row {
         display: grid;
-        grid-template-columns: 22px 1fr auto auto auto;
+        grid-template-columns: 22px 1fr auto auto;
         align-items: center;
         background: rgba(11, 22, 40, 0.94);
       }
@@ -157,14 +157,12 @@
         <span class="sb-serve" id="home-serve"></span>
         <div class="sb-name" id="home-name">—</div>
         <div class="sb-sets" id="home-sets"></div>
-        <div class="sb-games" id="home-games">0</div>
         <div class="sb-points" id="home-points">0</div>
       </div>
       <div class="sb-row away">
         <span class="sb-serve" id="away-serve"></span>
         <div class="sb-name" id="away-name">—</div>
         <div class="sb-sets" id="away-sets"></div>
-        <div class="sb-games" id="away-games">0</div>
         <div class="sb-points" id="away-points">0</div>
       </div>
     </div>
@@ -210,18 +208,15 @@
         lastPts = { home: h, away: a };
       }
 
-      // Render per-game columns: finished games + the current game.
+      // Render per-game columns: ONLY completed games (history). The current
+      // game is shown by the big points column, so we don't duplicate it here,
+      // and future/unplayed sets never appear as 0-0.
       function renderSets(side, snap) {
         const el = $(side + "-sets");
         if (!showPoints) { el.innerHTML = ""; return; }
-        const cells = [];
-        (snap.games || []).forEach((g) => {
-          cells.push('<span class="g done">' + (g[side] ?? 0) + "</span>");
-        });
-        // Current game (only if match not finished, else it's already in games).
-        if (snap.status !== "finished") {
-          cells.push('<span class="g cur">' + (snap.currentGame[side] ?? 0) + "</span>");
-        }
+        const cells = (snap.games || [])
+          .filter((g) => g.winner !== undefined) // completed sets only
+          .map((g) => '<span class="g done">' + (g[side] ?? 0) + "</span>");
         el.innerHTML = cells.join("");
       }
 
@@ -243,8 +238,6 @@
           }
           $("home-name").textContent = teamName(snap.home);
           $("away-name").textContent = teamName(snap.away);
-          $("home-games").textContent = snap.gamesWon.home;
-          $("away-games").textContent = snap.gamesWon.away;
           renderSets("home", snap);
           renderSets("away", snap);
           // Server dot (only meaningful when points are shown and known).
