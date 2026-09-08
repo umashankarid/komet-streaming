@@ -81,22 +81,24 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-      const parts = location.pathname.split("/");
-      const courtId = Number(parts[parts.length - 1]) || 1;
-      const token = new URLSearchParams(location.search).get("token") || "";
+      // URL like /score-link/court1 -> courtId 1
+      const m = location.pathname.match(/court(\d+)/i);
+      const courtId = m ? Number(m[1]) : 1;
       const $ = (id) => document.getElementById(id);
       const teamName = (t) => (t?.players || []).map((p) => p.name).join(" / ") || "—";
+      let active = false;
 
       function show(msg) { $("msg").textContent = msg; $("msg").classList.add("show"); }
       function hide() { $("msg").classList.remove("show"); }
 
-      function render(snap) {
+      function renderMatch(snap) {
         $("court").textContent = "Court " + courtId;
         if (!snap) {
-          $("status").textContent = "No match on this court yet";
           $("home-pts").textContent = "0";
           $("away-pts").textContent = "0";
           $("games").textContent = "—";
+          $("home-name").textContent = "Home";
+          $("away-name").textContent = "Away";
           return;
         }
         $("home-name").textContent = teamName(snap.home);
@@ -109,49 +111,66 @@
           : snap.status.toUpperCase();
       }
 
+      function applyActive() {
+        // Disable +/- buttons when scoring is not active.
+        document.querySelectorAll("button").forEach((b) => (b.disabled = !active));
+        if (!active) {
+          show("Waiting for the control desk to start the match on Court " + courtId + ".");
+        } else {
+          hide();
+        }
+      }
+
       async function loadState() {
         try {
-          const res = await fetch(
-            "/livescore/" + courtId + "/state?token=" + encodeURIComponent(token),
-          );
-          if (res.status === 401) { show("Invalid or expired scorer link. Ask the admin for a new link."); return; }
-          hide();
-          render(await res.json());
+          const res = await fetch("/score-link/court" + courtId + "/state");
+          const data = await res.json();
+          active = Boolean(data.active);
+          renderMatch(data.match);
+          applyActive();
         } catch (_e) { $("status").textContent = "offline"; }
       }
 
       async function act(op, side) {
+        if (!active) return;
         try {
-          const res = await fetch("/livescore/" + courtId + "/" + op, {
+          const res = await fetch("/score-link/court" + courtId + "/" + op, {
             method: "POST",
-            headers: { "Content-Type": "application/json", "X-Scorer-Token": token },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ side }),
           });
-          if (res.status === 401) { show("Invalid or expired scorer link."); return; }
+          if (res.status === 409) {
+            active = false; applyActive(); return; // became inactive
+          }
           if (!res.ok) {
             const e = await res.json().catch(() => ({}));
             $("status").textContent = e.error || "error";
-            // Refresh state so display stays correct even if the action was rejected
-            // (e.g. match not started, or already over).
             loadState();
             return;
           }
-          hide();
-          render(await res.json());
+          renderMatch(await res.json());
         } catch (_e) { $("status").textContent = "offline"; }
       }
 
       document.addEventListener("click", (e) => {
         const b = e.target.closest("button");
-        if (!b) return;
+        if (!b || b.disabled) return;
         act(b.dataset.op, b.dataset.side);
       });
 
-      // Live updates from admin/other actions.
+      // Live updates: match changes and start/clear flip active state.
       const socket = io();
       socket.on("connect", () => socket.emit("join-court", courtId));
-      socket.on("court:update", render);
-      socket.on("court:cleared", () => render(null));
+      socket.on("court:update", (snap) => {
+        active = Boolean(snap && snap.status === "live");
+        renderMatch(snap);
+        applyActive();
+      });
+      socket.on("court:cleared", () => {
+        active = false;
+        renderMatch(null);
+        applyActive();
+      });
 
       loadState();
     </script>

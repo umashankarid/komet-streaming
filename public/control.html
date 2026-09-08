@@ -430,21 +430,13 @@
           await api("/courts/" + id + "/match/ticker", { text });
         } else if (t.dataset.scorer) {
           const id = t.dataset.scorer;
+          const url = location.origin + "/score-link/court" + id;
           try {
-            const r = await fetch("/api/courts/" + id + "/scorer-link");
-            const data = await r.json();
-            if (!r.ok) { alert(data.error || "Failed to get scorer link"); return; }
-            const url = location.origin + data.path;
-            // Try clipboard; fall back to prompt so it can be copied manually.
-            try {
-              await navigator.clipboard.writeText(url);
-              alert("Scorer link for Court " + id + " copied to clipboard:\n\n" + url +
-                "\n\nGive this to the Court " + id + " scorer. They can only score this court.");
-            } catch (_e) {
-              prompt("Scorer link for Court " + id + " (copy it):", url);
-            }
+            await navigator.clipboard.writeText(url);
+            alert("Scorer link for Court " + id + " copied:\n\n" + url +
+              "\n\nGive this to the Court " + id + " scorer. It only accepts scoring while this court's match is live.");
           } catch (_e) {
-            alert("Failed to get scorer link");
+            prompt("Scorer link for Court " + id + " (copy it):", url);
           }
         } else if (t.dataset.clear) {
           const id = t.dataset.clear;
