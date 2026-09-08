@@ -10,6 +10,7 @@ import {
   type MediaGateway,
 } from "../streaming/MediaGatewayClient.js";
 import type { CourtStreamStore } from "../youtube/CourtStreamStore.js";
+import type { ScorerTokenStore } from "./ScorerTokenStore.js";
 import {
   DEFAULT_SCORING,
   type ScoringConfig,
@@ -103,6 +104,7 @@ export function createApiRouter(
   youtube: YouTubeService = new NoopYouTubeService(),
   gateway: MediaGateway = new NoopMediaGateway(),
   courtStreams?: CourtStreamStore,
+  scorerTokens?: ScorerTokenStore,
 ): Router {
   const router = Router();
 
@@ -161,6 +163,33 @@ export function createApiRouter(
       const courtId = parseCourtId(req);
       orch.clearMatch(courtId);
       res.json({ ok: true, courtId });
+    }),
+  );
+
+  // Admin: get (creating if needed) the scorer token for a court, so the
+  // operator can hand a scoped scoring link to the court's scorer.
+  router.get(
+    "/courts/:courtId/scorer-link",
+    handle((req, res) => {
+      const courtId = parseCourtId(req);
+      if (!scorerTokens) {
+        throw new HttpError(503, "Scorer tokens are not configured");
+      }
+      const token = scorerTokens.ensure(courtId);
+      res.json({ courtId, token, path: `/livescore/${courtId}?token=${token}` });
+    }),
+  );
+
+  // Admin: rotate a court's scorer token (invalidates the old link).
+  router.post(
+    "/courts/:courtId/scorer-link/rotate",
+    handle((req, res) => {
+      const courtId = parseCourtId(req);
+      if (!scorerTokens) {
+        throw new HttpError(503, "Scorer tokens are not configured");
+      }
+      const token = scorerTokens.rotate(courtId);
+      res.json({ courtId, token, path: `/livescore/${courtId}?token=${token}` });
     }),
   );
 

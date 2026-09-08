@@ -36,8 +36,12 @@ export interface AppOptions {
   gateway?: MediaGateway;
   /** Optional per-court reusable stream store. */
   courtStreams?: import("../youtube/CourtStreamStore.js").CourtStreamStore;
+  /** Optional per-court scorer token store. */
+  scorerTokens?: import("./ScorerTokenStore.js").ScorerTokenStore;
   /** Optional router for the "Login with YouTube" OAuth flow. */
   authRouter?: import("express").Router;
+  /** Optional token-gated scorer router (/livescore/:court). */
+  liveScoreRouter?: import("express").Router;
 }
 
 /** True if the request carries a valid authenticated session. */
@@ -126,7 +130,7 @@ export function createApp(orch: MatchOrchestrator, opts: AppOptions): Express {
     if (req.method === "GET" || isAuthed(req)) return next();
     return res.status(401).json({ error: "Authentication required" });
   };
-  app.use("/api", requireApiAuth, createApiRouter(orch, opts.youtube, opts.gateway, opts.courtStreams));
+  app.use("/api", requireApiAuth, createApiRouter(orch, opts.youtube, opts.gateway, opts.courtStreams, opts.scorerTokens));
 
   // --- Public overlay (OBS browser source cannot authenticate) ---
   app.get("/overlay/court/:id", (_req, res) =>
@@ -140,6 +144,12 @@ export function createApp(orch: MatchOrchestrator, opts: AppOptions): Express {
   app.get("/broadcast-overlay", (_req, res) =>
     res.sendFile(path.join(PUBLIC_DIR, "broadcast-overlay.html")),
   );
+
+  // Token-gated scorer routes (/livescore/:court). Public shell + token-checked
+  // scoring API; scorers need no login and can only touch their court.
+  if (opts.liveScoreRouter) {
+    app.use(opts.liveScoreRouter);
+  }
 
   // --- Protected human pages ---
   const requirePageAuth = (req: Request, res: Response, next: NextFunction) => {

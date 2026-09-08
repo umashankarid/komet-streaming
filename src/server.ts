@@ -2,6 +2,8 @@ import { createServer } from "node:http";
 import { createApp } from "./api/app.js";
 import { authConfigFromEnv } from "./api/auth.js";
 import { createAuthRouter } from "./api/authRoutes.js";
+import { createLiveScoreRouter } from "./api/liveScoreRoutes.js";
+import { ScorerTokenStore } from "./api/ScorerTokenStore.js";
 import { attachSockets } from "./api/sockets.js";
 import { CourtService } from "./domain/Court.js";
 import { MatchOrchestrator } from "./domain/MatchOrchestrator.js";
@@ -49,6 +51,10 @@ const gateway = mediaGatewayFromEnv();
 // Reusable per-court YouTube stream store (shares the SQLite DB).
 const courtStreams = new CourtStreamStore(store.database);
 
+// Per-court scorer tokens + the token-gated scorer router (/livescore/:court).
+const scorerTokens = new ScorerTokenStore(store.database);
+const liveScoreRouter = createLiveScoreRouter(orch, scorerTokens);
+
 // Interactive OAuth service (needs client id/secret + redirect uri).
 const oauthClientId = process.env.YOUTUBE_CLIENT_ID;
 const oauthClientSecret = process.env.YOUTUBE_CLIENT_SECRET;
@@ -74,7 +80,9 @@ const app = createApp(orch, {
   youtube,
   gateway,
   courtStreams,
+  scorerTokens,
   authRouter,
+  liveScoreRouter,
 });
 const httpServer = createServer(app);
 attachSockets(httpServer, orch);

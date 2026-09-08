@@ -97,6 +97,39 @@ describe("MatchOrchestrator", () => {
     expect(cleared).toHaveBeenCalledWith(1);
   });
 
+  it("scorePoint auto-advances to the next game when a game is won", () => {
+    // 11-point games, best of 3.
+    orch.createMatch({
+      courtId: 1,
+      home,
+      away,
+      scoring: { pointsToWin: 11, winBy: 2, cap: 15, bestOf: 3 },
+    });
+    orch.startMatch(1);
+    // Home wins game 1 (11-0). scorePoint should auto-start game 2.
+    let snap;
+    for (let i = 0; i < 11; i++) snap = orch.scorePoint(1, "home");
+    expect(snap.gamesWon.home).toBe(1);
+    // Auto-advanced: a fresh current game at 0-0, match not finished.
+    expect(snap.currentGame).toEqual({ home: 0, away: 0 });
+    expect(snap.status).toBe("live");
+    expect(snap.games.length).toBe(2);
+  });
+
+  it("scorePoint finishes the match without advancing past the final game", () => {
+    orch.createMatch({
+      courtId: 1,
+      home,
+      away,
+      scoring: { pointsToWin: 11, winBy: 2, cap: 15, bestOf: 1 },
+    });
+    orch.startMatch(1);
+    let snap;
+    for (let i = 0; i < 11; i++) snap = orch.scorePoint(1, "home");
+    expect(snap.matchWinner).toBe("home");
+    expect(snap.status).toBe("finished");
+  });
+
   describe("streaming orchestration", () => {
     it("exposes a default streaming snapshot for any court (no match needed)", () => {
       const snap = orch.streamingSnapshot(2);

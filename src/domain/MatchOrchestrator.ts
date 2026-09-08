@@ -105,6 +105,26 @@ export class MatchOrchestrator {
     return this.emit(courtId);
   }
 
+  /**
+   * Score a point for the scorer flow: adds the point and, if that finished the
+   * current game but not the whole match, auto-advances to the next game. This
+   * lets the scorer page expose only +1/-1 (sets advance automatically).
+   */
+  scorePoint(courtId: number, side: Side): MatchSnapshot {
+    const match = this.requireMatch(courtId);
+    match.pointFor(side);
+    const snap = match.snapshot();
+    // If the current game just got a winner and the match isn't over, advance.
+    if (
+      snap.status !== "finished" &&
+      snap.currentGame.winner !== undefined &&
+      snap.matchWinner === undefined
+    ) {
+      match.nextGame();
+    }
+    return this.emit(courtId);
+  }
+
   correct(courtId: number, side: Side): MatchSnapshot {
     this.requireMatch(courtId).correctPoint(side);
     return this.emit(courtId);
