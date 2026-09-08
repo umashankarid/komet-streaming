@@ -62,7 +62,7 @@
       .sb-banner.show { display: block; }
       .sb-row {
         display: grid;
-        grid-template-columns: 22px 1fr auto auto;
+        grid-template-columns: 22px 1fr auto;
         align-items: center;
         background: rgba(11, 22, 40, 0.94);
       }
@@ -83,18 +83,25 @@
         background: #37d67a;
         box-shadow: 0 0 8px #37d67a;
       }
-      /* Per-game (sets) scores, e.g. 21 18 11. */
+      /* Per-set scores. Each set is a column; the current set updates live. */
       .sb-sets {
         display: flex;
-        gap: 10px;
-        padding: 0 14px;
-        font-size: 22px;
+        gap: 14px;
+        padding: 6px 22px;
         font-variant-numeric: tabular-nums;
-        color: #cfe0f2;
       }
-      .sb-sets .g { min-width: 22px; text-align: center; }
+      .sb-sets .g {
+        min-width: 40px;
+        text-align: center;
+        font-size: 34px;
+        font-weight: 800;
+      }
       .sb-sets .g.done { color: #9fb3c8; }
-      .sb-sets .g.cur { color: #fff; font-weight: 700; }
+      .sb-sets .g.cur {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+      }
       .sb-name {
         padding: 14px 20px;
         font-size: 30px;
@@ -157,13 +164,11 @@
         <span class="sb-serve" id="home-serve"></span>
         <div class="sb-name" id="home-name">—</div>
         <div class="sb-sets" id="home-sets"></div>
-        <div class="sb-points" id="home-points">0</div>
       </div>
       <div class="sb-row away">
         <span class="sb-serve" id="away-serve"></span>
         <div class="sb-name" id="away-name">—</div>
         <div class="sb-sets" id="away-sets"></div>
-        <div class="sb-points" id="away-points">0</div>
       </div>
     </div>
 
@@ -208,15 +213,19 @@
         lastPts = { home: h, away: a };
       }
 
-      // Render per-game columns: ONLY completed games (history). The current
-      // game is shown by the big points column, so we don't duplicate it here,
-      // and future/unplayed sets never appear as 0-0.
+      // Render each set as a column: completed sets (muted) + the current set
+      // (highlighted, live-updating). No separate big-points column. Future
+      // sets never appear (they don't exist in the data until started).
       function renderSets(side, snap) {
         const el = $(side + "-sets");
         if (!showPoints) { el.innerHTML = ""; return; }
-        const cells = (snap.games || [])
-          .filter((g) => g.winner !== undefined) // completed sets only
-          .map((g) => '<span class="g done">' + (g[side] ?? 0) + "</span>");
+        const games = snap.games || [];
+        const cells = games.map((g, i) => {
+          const isCurrent =
+            snap.status !== "finished" && i === games.length - 1 && g.winner === undefined;
+          const cls = isCurrent ? "g cur" : "g done";
+          return '<span class="' + cls + '">' + (g[side] ?? 0) + "</span>";
+        });
         el.innerHTML = cells.join("");
       }
 
@@ -243,11 +252,6 @@
           // Server dot (only meaningful when points are shown and known).
           $("home-serve").classList.toggle("on", showPoints && server === "home");
           $("away-serve").classList.toggle("on", showPoints && server === "away");
-          // In "match" mode we hide live points (show dashes).
-          $("home-points").textContent = showPoints ? snap.currentGame.home : "";
-          $("away-points").textContent = showPoints ? snap.currentGame.away : "";
-          $("home-points").classList.toggle("winner", snap.matchWinner === "home");
-          $("away-points").classList.toggle("winner", snap.matchWinner === "away");
           board.classList.add("show");
         }
 
