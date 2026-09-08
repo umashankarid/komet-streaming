@@ -189,11 +189,11 @@
       // What each mode shows:
       //  none  -> nothing (clean video)
       //  match -> scoreboard players/court, no live points
-      //  score -> scoreboard with live points
+      //  score -> scoreboard with live points + bottom ticker
       //  full  -> score + bottom sponsor/tournament ticker
       const showScoreboard = mode === "match" || mode === "score" || mode === "full";
       const showPoints = mode === "score" || mode === "full";
-      const showTicker = mode === "full";
+      const showTicker = mode === "score" || mode === "full";
 
       // Server tracking: whoever scored the most recent point serves next.
       // Unknown (no dot) until the first point of the match.
