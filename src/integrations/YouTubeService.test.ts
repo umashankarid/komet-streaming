@@ -251,6 +251,40 @@ describe("YouTubeApiService", () => {
     expect(bind?.url).toContain("streamId=auto-stream-1");
   });
 
+  it("self-heals when a stored reusable stream is gone (404 on bind)", async () => {
+    const calls = [];
+    const fn = async (url, init) => {
+      calls.push({ url, init });
+      const ok = (payload) => ({
+        ok: true, status: 200,
+        json: async () => payload, text: async () => JSON.stringify(payload),
+      });
+      if (url.includes("/token")) return ok({ access_token: "t", expires_in: 3600 });
+      if (url.includes("/liveBroadcasts?part=")) return ok({ id: "b1" });
+      if (url.includes("/liveBroadcasts/bind") && url.includes("streamId=stale")) {
+        return { ok: false, status: 404, json: async () => ({}), text: async () => "liveStreamNotFound: Stream not found" };
+      }
+      if (url.includes("/liveStreams?part=snippet")) {
+        return ok({ id: "fresh-1", cdn: { ingestionInfo: { ingestionAddress: "rtmp://a/live2", streamName: "kf" } } });
+      }
+      if (url.includes("/liveBroadcasts/bind")) return ok({ id: "b1" });
+      return ok({});
+    };
+    const svc = new YouTubeApiService(
+      { clientId: "c", clientSecret: "s", refreshToken: "r" },
+      fn,
+    );
+    let saved = { streamId: "stale", rtmpUrl: "rtmp://a/live2/old" };
+    const reusableStream = {
+      get: () => saved,
+      save: (streamId, rtmpUrl) => { saved = { streamId, rtmpUrl }; },
+    };
+    const handle = await svc.createBroadcast({ title: "T", reusableStream });
+    expect(handle.rtmpUrl).toBe("rtmp://a/live2/kf");
+    expect(saved.streamId).toBe("fresh-1");
+    expect(calls.some((c) => c.url.includes("/liveStreams?part=snippet"))).toBe(true);
+  });
+
   it("creates a fresh stream for each broadcast (no reuse)", async () => {
     const { fn, calls } = fakeFetch([
       () => ({ access_token: "tok", expires_in: 3600 }),

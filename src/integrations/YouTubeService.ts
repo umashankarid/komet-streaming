@@ -301,11 +301,31 @@ export class YouTubeApiService implements YouTubeService {
       rtmpUrl = fresh.rtmpUrl;
     }
 
-    // 3) Bind the broadcast to that stream.
-    await this.apiFetch(
-      `/liveBroadcasts/bind?id=${encodeURIComponent(broadcastId)}&streamId=${encodeURIComponent(streamId)}&part=id,contentDetails`,
-      { method: "POST" },
-    );
+    // 3) Bind the broadcast to that stream. If the (reused) stream no longer
+    // exists on YouTube (404 "Stream not found"), discard it, create a fresh
+    // stream, persist it, and retry the bind once — so a deleted stream never
+    // permanently breaks a court.
+    try {
+      await this.apiFetch(
+        `/liveBroadcasts/bind?id=${encodeURIComponent(broadcastId)}&streamId=${encodeURIComponent(streamId)}&part=id,contentDetails`,
+        { method: "POST" },
+      );
+    } catch (err) {
+      const msg = (err as Error).message;
+      const stale = msg.includes("(404)") || msg.includes("liveStreamNotFound") || msg.includes("Stream not found");
+      if (stale && params.reusableStream && !this.cfg.streamId) {
+        const fresh = await this.createFreshStream(params.title);
+        streamId = fresh.streamId;
+        rtmpUrl = fresh.rtmpUrl;
+        if (rtmpUrl) params.reusableStream.save(streamId, rtmpUrl);
+        await this.apiFetch(
+          `/liveBroadcasts/bind?id=${encodeURIComponent(broadcastId)}&streamId=${encodeURIComponent(streamId)}&part=id,contentDetails`,
+          { method: "POST" },
+        );
+      } else {
+        throw err;
+      }
+    }
 
     return {
       broadcastId,
