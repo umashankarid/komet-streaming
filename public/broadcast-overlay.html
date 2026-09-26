@@ -255,21 +255,33 @@
           board.classList.add("show");
         }
 
-        // Ticker: tournament banner + sponsor/ticker text, repeated.
-        if (showTicker) {
-          const bits = [];
-          if (snap && snap.banner) bits.push(snap.banner);
-          if (snap && snap.tickerText) bits.push(snap.tickerText);
-          if (snap && snap.courtName) bits.push(snap.courtName);
-          const text = bits.length ? bits.join("  •  ") : "BMK KOMET";
-          // Duplicate so the scroll loop is seamless.
-          $("ticker-track").innerHTML =
-            '<span>' + text + '</span><span class="sep">•</span><span>' + text + "</span>";
-          $("ticker").classList.add("show");
-        } else {
-          $("ticker").classList.remove("show");
-        }
+        lastSnap = snap;
+        renderTicker();
       }
+
+      // Court-level ticker text (independent of match), updated via socket.
+      let courtTicker = null;
+      let lastSnap = null;
+
+      // Ticker: court ticker + match banner + court name, scrolling. Shows
+      // whenever ticker mode is on, even with no match.
+      function renderTicker() {
+        if (!showTicker) { $("ticker").classList.remove("show"); return; }
+        const bits = [];
+        if (courtTicker) bits.push(courtTicker);
+        if (lastSnap && lastSnap.banner) bits.push(lastSnap.banner);
+        if (lastSnap && lastSnap.courtName) bits.push(lastSnap.courtName);
+        const text = bits.length ? bits.join("  •  ") : "BMK KOMET";
+        $("ticker-track").innerHTML =
+          '<span>' + text + '</span><span class="sep">•</span><span>' + text + "</span>";
+        $("ticker").classList.add("show");
+      }
+
+      // Load initial court ticker (works without a match).
+      fetch("/api/courts/" + courtId + "/ticker")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d) { courtTicker = d.ticker; renderTicker(); } })
+        .catch(() => {});
 
       fetch("/api/courts/" + courtId + "/match")
         .then((r) => (r.ok ? r.json() : null))
@@ -278,6 +290,7 @@
 
       const socket = io();
       socket.on("connect", () => socket.emit("join-court", courtId));
+      socket.on("court:ticker", (msg) => { courtTicker = msg.ticker; renderTicker(); });
       socket.on("court:update", render);
       socket.on("court:cleared", () => render(null));
     </script>

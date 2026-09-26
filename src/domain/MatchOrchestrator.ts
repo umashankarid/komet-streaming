@@ -24,6 +24,9 @@ export class MatchOrchestrator {
   private readonly listeners = new Set<CourtUpdateListener>();
   private readonly streamingListeners = new Set<StreamingUpdateListener>();
   private readonly clearedListeners = new Set<(courtId: number) => void>();
+  private readonly courtTickerListeners = new Set<
+    (courtId: number, text: string | undefined) => void
+  >();
   private seq = 0;
 
   constructor(courts: CourtService = new CourtService()) {
@@ -40,6 +43,28 @@ export class MatchOrchestrator {
   onMatchCleared(listener: (courtId: number) => void): () => void {
     this.clearedListeners.add(listener);
     return () => this.clearedListeners.delete(listener);
+  }
+
+  /** Subscribe to court-ticker changes (independent of match). */
+  onCourtTicker(
+    listener: (courtId: number, text: string | undefined) => void,
+  ): () => void {
+    this.courtTickerListeners.add(listener);
+    return () => this.courtTickerListeners.delete(listener);
+  }
+
+  /** Set/clear the court-level ticker (works with or without a match). */
+  setCourtTicker(courtId: number, text: string | undefined): string | undefined {
+    const court = this.ensureCourt(courtId);
+    court.setTicker(text);
+    const current = court.getTicker();
+    for (const l of this.courtTickerListeners) l(courtId, current);
+    return current;
+  }
+
+  /** Get the court-level ticker text. */
+  getCourtTicker(courtId: number): string | undefined {
+    return this.ensureCourt(courtId).getTicker();
   }
 
   /** Subscribe to streaming-state updates. Returns an unsubscribe function. */
@@ -204,16 +229,33 @@ export class MatchOrchestrator {
     return this.emitStreaming(courtId);
   }
 
-  /** Begin the stop sequence (live -> stopping). */
+  /** Pause (live -> paused), keeping the broadcast for resume. */
   requestStreamStop(courtId: number): StreamingSnapshot {
     this.ensureCourt(courtId).streaming.requestStop();
     return this.emitStreaming(courtId);
   }
 
-  /** Finalize the stop (stopping -> idle); keeps the camera connection. */
+  /** Finalize the pause (kept paused, broadcast retained). */
   confirmStreamStopped(courtId: number): StreamingSnapshot {
     this.ensureCourt(courtId).streaming.confirmStopped();
     return this.emitStreaming(courtId);
+  }
+
+  /** Resume a paused broadcast (paused -> live), same broadcast. */
+  resumeStream(courtId: number): StreamingSnapshot {
+    this.ensureCourt(courtId).streaming.resume();
+    return this.emitStreaming(courtId);
+  }
+
+  /** End the session (complete broadcast -> idle). */
+  endStream(courtId: number): StreamingSnapshot {
+    this.ensureCourt(courtId).streaming.end();
+    return this.emitStreaming(courtId);
+  }
+
+  /** Whether the court currently has a resumable/endable broadcast. */
+  hasActiveBroadcast(courtId: number): boolean {
+    return this.ensureCourt(courtId).streaming.hasActiveBroadcast();
   }
 
   /** Move a court's stream into the error state. */

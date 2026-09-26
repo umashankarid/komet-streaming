@@ -126,7 +126,7 @@ describe("CourtStreaming", () => {
     expect(() => s.setOverlayMode("weird" as never)).toThrow(/Invalid overlay/);
   });
 
-  it("runs the full start -> live -> stop lifecycle with a clock", () => {
+  it("runs start -> live -> pause -> resume -> end with a clock", () => {
     let t = 1000;
     const s = new CourtStreaming(1, () => t);
     s.requestStart({ title: "Match A", overlayMode: "full" });
@@ -136,16 +136,25 @@ describe("CourtStreaming", () => {
     s.confirmLive("bcast-123");
     expect(s.getStatus()).toBe("live");
     expect(s.snapshot().broadcastId).toBe("bcast-123");
-    t = 4000;
-    expect(s.durationMs()).toBe(3000);
 
+    // Pause keeps the broadcast.
     s.requestStop();
-    expect(s.getStatus()).toBe("stopping");
+    expect(s.getStatus()).toBe("paused");
     s.confirmStopped();
+    expect(s.getStatus()).toBe("paused");
+    expect(s.snapshot().broadcastId).toBe("bcast-123");
+    expect(s.hasActiveBroadcast()).toBe(true);
+
+    // Resume the same broadcast.
+    s.resume();
+    expect(s.getStatus()).toBe("live");
+    expect(s.snapshot().broadcastId).toBe("bcast-123");
+
+    // End completes it.
+    s.end();
     expect(s.getStatus()).toBe("idle");
-    // Broadcast/duration cleared, camera preserved.
     expect(s.snapshot().broadcastId).toBeUndefined();
-    expect(s.durationMs()).toBe(0);
+    expect(s.hasActiveBroadcast()).toBe(false);
   });
 
   it("requires a title to start", () => {
@@ -170,8 +179,9 @@ describe("CourtStreaming", () => {
   it("guards illegal transitions", () => {
     const s = new CourtStreaming(1);
     expect(() => s.confirmLive("b")).toThrow(/Cannot go live/);
-    expect(() => s.requestStop()).toThrow(/Cannot stop/);
-    expect(() => s.confirmStopped()).toThrow(/Cannot finish stopping/);
+    expect(() => s.requestStop()).toThrow(/Cannot pause/);
+    expect(() => s.resume()).toThrow(/Cannot resume/);
+    expect(() => s.end()).toThrow(/Cannot end/);
     s.requestStart({ title: "T" });
     expect(() => s.confirmLive("")).toThrow(/broadcastId is required/);
   });

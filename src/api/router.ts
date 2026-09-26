@@ -138,6 +138,7 @@ export function createApiRouter(
           naming: c.naming,
           match: c.getMatch()?.snapshot() ?? null,
           streaming: c.streaming.snapshot(),
+          ticker: c.getTicker() ?? null,
         })),
       );
     }),
@@ -206,6 +207,28 @@ export function createApiRouter(
           ? req.body.text.slice(0, 500)
           : undefined;
       res.json(orch.setTicker(courtId, text));
+    }),
+  );
+
+  // Court-level ticker: set/clear the scrolling ticker WITHOUT needing a match.
+  router.post(
+    "/courts/:courtId/ticker",
+    handle((req, res) => {
+      const courtId = parseCourtId(req);
+      const text =
+        typeof req.body?.text === "string"
+          ? req.body.text.slice(0, 500)
+          : undefined;
+      const ticker = orch.setCourtTicker(courtId, text);
+      res.json({ courtId, ticker: ticker ?? null });
+    }),
+  );
+
+  router.get(
+    "/courts/:courtId/ticker",
+    handle((req, res) => {
+      const courtId = parseCourtId(req);
+      res.json({ courtId, ticker: orch.getCourtTicker(courtId) ?? null });
     }),
   );
 
@@ -290,23 +313,52 @@ export function createApiRouter(
     }),
   );
 
-  // Begin the start sequence (idle/error -> starting). Title is optional; when
-  // omitted an auto-generated title from match info is used. When YouTube is
-  // configured, this creates a real broadcast and transitions it live; the
-  // returned snapshot is then "live". With no credentials, it falls back to a
-  // placeholder broadcast so the UI/state still works.
+  // Start OR resume. If the court has a paused broadcast, resume it (same
+  // video, no new broadcast). Otherwise create a fresh broadcast.
   router.post(
     "/courts/:courtId/streaming/start",
     handleAsync(async (req, res) => {
       const courtId = parseCourtId(req);
+
+      // Helper: point the gateway at an rtmp url with the court's overlay mode.
+      const startGatewayForCourt = async (rtmpUrl: string, mode?: string) => {
+        if (!gateway.enabled) return;
+        const wantOverlay = mode !== undefined && mode !== "none";
+        const publicBase = process.env.PUBLIC_BASE_URL || "";
+        const overlayUrl = wantOverlay && publicBase
+          ? `${publicBase.replace(/\/$/, "")}/broadcast-overlay?court=${courtId}&mode=${mode}`
+          : undefined;
+        await gateway.startCourt(courtId, rtmpUrl, {
+          overlay: wantOverlay && Boolean(overlayUrl),
+          overlayUrl,
+        });
+      };
+
+      // --- Resume path: a paused broadcast exists for this court ---
+      if (orch.hasActiveBroadcast(courtId)) {
+        const cur = orch.streamingSnapshot(courtId);
+        try {
+          const stored = courtStreams?.get(courtId);
+          if (gateway.enabled && stored?.rtmpUrl) {
+            await startGatewayForCourt(stored.rtmpUrl, cur.overlayMode);
+          }
+          res.json(orch.resumeStream(courtId));
+        } catch (err) {
+          res.status(502).json({
+            error: `Stream resume failed: ${(err as Error).message}`,
+            streaming: orch.failStream(courtId, (err as Error).message),
+          });
+        }
+        return;
+      }
+
+      // --- New broadcast path ---
       const title =
         typeof req.body?.title === "string" ? req.body.title : undefined;
       const overlayMode =
         req.body?.overlayMode === undefined
           ? undefined
           : parseOverlayMode(req.body.overlayMode);
-      // Enter "starting" first so the state machine validates the transition
-      // and the UI reflects progress.
       const starting = orch.requestStreamStart(courtId, { title, overlayMode });
       let createdBroadcastId: string | undefined;
       try {
@@ -324,8 +376,6 @@ export function createApiRouter(
             : undefined,
         });
         createdBroadcastId = handle.broadcastId;
-        // Tell the media gateway to push this court's SRT input to the
-        // broadcast's RTMP target, so video actually reaches YouTube.
         if (gateway.enabled) {
           if (!handle.rtmpUrl) {
             throw new Error(
@@ -333,30 +383,11 @@ export function createApiRouter(
                 "Cannot tell the media gateway where to push video.",
             );
           }
-          // Overlay burn-in: when the chosen mode is not "none", tell the
-          // gateway to composite the broadcast overlay page for this court.
-          const mode = starting.overlayMode;
-          const wantOverlay = mode !== undefined && mode !== "none";
-          const publicBase = process.env.PUBLIC_BASE_URL || "";
-          const overlayUrl = wantOverlay && publicBase
-            ? `${publicBase.replace(/\/$/, "")}/broadcast-overlay?court=${courtId}&mode=${mode}`
-            : undefined;
-          await gateway.startCourt(courtId, handle.rtmpUrl, {
-            overlay: wantOverlay && Boolean(overlayUrl),
-            overlayUrl,
-          });
+          await startGatewayForCourt(handle.rtmpUrl, starting.overlayMode);
         }
-        // No explicit transitionToLive: broadcasts are created with
-        // enableAutoStart, so YouTube goes live automatically once the gateway
-        // pushes video. Skipping it saves an API call (quota) and avoids the
-        // 403 "stream inactive" churn.
-        res.json(
-          orch.confirmStreamLive(courtId, handle.broadcastId),
-        );
+        // Broadcasts use enableAutoStart, so YouTube goes live once video flows.
+        res.json(orch.confirmStreamLive(courtId, handle.broadcastId));
       } catch (err) {
-        // Clean up the just-created broadcast so a failed start does not leave
-        // an orphaned "upcoming" broadcast piling up on the channel (which then
-        // trips YouTube's live-broadcast rate limit).
         if (createdBroadcastId) {
           try {
             await youtube.deleteBroadcast(createdBroadcastId);
@@ -367,6 +398,29 @@ export function createApiRouter(
         res.status(502).json({
           error: `Stream start failed: ${(err as Error).message}`,
           streaming: orch.failStream(courtId, (err as Error).message),
+        });
+      }
+    }),
+  );
+
+  // End the session: complete the YouTube broadcast and stop the gateway.
+  router.post(
+    "/courts/:courtId/streaming/end",
+    handleAsync(async (req, res) => {
+      const courtId = parseCourtId(req);
+      const current = orch.streamingSnapshot(courtId);
+      try {
+        if (gateway.enabled) {
+          await gateway.stopCourt(courtId);
+        }
+        if (current.broadcastId) {
+          await youtube.completeBroadcast(current.broadcastId);
+        }
+        res.json(orch.endStream(courtId));
+      } catch (err) {
+        res.status(502).json({
+          error: `Stream end failed: ${(err as Error).message}`,
+          streaming: orch.endStream(courtId),
         });
       }
     }),
@@ -385,27 +439,23 @@ export function createApiRouter(
   );
 
   // Begin the stop sequence (live -> stopping) and complete the broadcast.
+  // Pause: stop the gateway pushing video but KEEP the YouTube broadcast so it
+  // can be resumed with START. Does NOT complete the broadcast.
   router.post(
     "/courts/:courtId/streaming/stop",
     handleAsync(async (req, res) => {
       const courtId = parseCourtId(req);
-      const current = orch.streamingSnapshot(courtId);
-      const stopping = orch.requestStreamStop(courtId);
+      const paused = orch.requestStreamStop(courtId);
       try {
-        // Stop the gateway's FFmpeg for this court first (stops pushing video).
         if (gateway.enabled) {
           await gateway.stopCourt(courtId);
         }
-        if (current.broadcastId) {
-          await youtube.completeBroadcast(current.broadcastId);
-        }
         res.json(orch.confirmStreamStopped(courtId));
       } catch (err) {
-        // Completing failed, but locally we still stop; surface the error.
         res.status(502).json({
-          error: `YouTube stop failed: ${(err as Error).message}`,
+          error: `Stream pause failed: ${(err as Error).message}`,
           streaming: orch.confirmStreamStopped(courtId),
-          hadStopping: stopping.youtubeStatus,
+          wasStatus: paused.youtubeStatus,
         });
       }
     }),

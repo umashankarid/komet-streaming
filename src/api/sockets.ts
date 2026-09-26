@@ -21,6 +21,8 @@ export function attachSockets(
       if (snap) socket.emit("court:update", snap);
       // Streaming state always exists (even with no match).
       socket.emit("streaming:update", orch.streamingSnapshot(id));
+      // Court-level ticker (independent of match).
+      socket.emit("court:ticker", { courtId: id, ticker: orch.getCourtTicker(id) ?? null });
     });
   });
 
@@ -34,6 +36,10 @@ export function attachSockets(
 
   orch.onMatchCleared((courtId) => {
     io.to(`court:${courtId}`).emit("court:cleared", { courtId });
+  });
+
+  orch.onCourtTicker((courtId, text) => {
+    io.to(`court:${courtId}`).emit("court:ticker", { courtId, ticker: text ?? null });
   });
 
   return io;

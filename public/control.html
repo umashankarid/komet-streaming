@@ -154,6 +154,7 @@
       const socket = io();
       const state = new Map(); // courtId -> snapshot
       const streaming = new Map(); // courtId -> streaming snapshot
+      const courtTickers = new Map(); // courtId -> ticker text
       const teamName = (t) =>
         (t?.players || []).map((p) => p.name).join(" / ") || "—";
 
@@ -191,6 +192,7 @@
             const c = courts.find((x) => x.id === id);
             if (c?.match) state.set(id, c.match);
             if (c?.streaming) streaming.set(id, c.streaming);
+            if (c && c.ticker != null) courtTickers.set(id, c.ticker);
             renderCourt(id);
             renderStreaming(id);
             socket.emit("join-court", id);
@@ -277,6 +279,7 @@
       function streamStatusDot(s) {
         if (s === "live") return "🔴 LIVE";
         if (s === "starting") return "🟡 starting…";
+        if (s === "paused") return "⏸ PAUSED";
         if (s === "stopping") return "🟡 stopping…";
         if (s === "error") return "⚠️ error";
         return "⚪ Not live";
@@ -291,6 +294,7 @@
           cameraConnected: false,
         };
         const live = st.youtubeStatus === "live";
+        const paused = st.youtubeStatus === "paused";
         const busy = st.youtubeStatus === "starting" || st.youtubeStatus === "stopping";
         let cam = st.cameraConnected ? "🟢 SRT connected" : "⚪ No camera";
         if (st.cameraConnected && st.camera) {
@@ -307,6 +311,12 @@
           existingInput && document.activeElement === existingInput
             ? existingInput.value
             : (st.title || "");
+        // Preserve in-progress court ticker edit too.
+        const existingTicker = sc.querySelector(".court-ticker");
+        const tickerVal =
+          existingTicker && document.activeElement === existingTicker
+            ? existingTicker.value
+            : (courtTickers.get(courtId) || "");
 
         let html =
           '<hr style="border-color:#21344f;margin:14px 0" />' +
@@ -316,9 +326,15 @@
             ? ' · <span class="timer" data-stream-timer="' + courtId + '">0:00</span>'
             : "") +
           (st.error ? ' · <span style="color:#ff7a7a">' + escapeHtml(st.error) + "</span>" : "") +
+          "</div>" +
+          // Court ticker (independent of match): set/clear the scrolling ticker.
+          '<div class="setup" style="margin-top:8px">' +
+          '<input class="court-ticker" id="ct-' + courtId + '" placeholder="Scrolling ticker text (sponsors / tournament)" value="' +
+          escapeAttr(tickerVal) + '" />' +
+          '<div class="actions"><button data-court-ticker="' + courtId + '">Update ticker</button></div>' +
           "</div>";
 
-        if (!live && !busy) {
+        if (!live && !paused && !busy) {
           html +=
             '<div class="setup">' +
             '<input class="yt-title" id="yt-' + courtId + '" placeholder="YouTube title" value="' +
@@ -348,7 +364,11 @@
             "<br/>Overlay: " + (st.overlayMode || "score") + "</div></div>" +
             '<div class="actions">' +
             (live
-              ? '<button data-stream-stop="' + courtId + '">⏹ STOP STREAM</button>'
+              ? '<button data-stream-stop="' + courtId + '">⏸ PAUSE</button>' +
+                '<button data-stream-end="' + courtId + '" style="background:#5a1f1f">⏹ END</button>'
+              : paused
+              ? '<button class="primary" data-stream-start="' + courtId + '">▶ RESUME</button>' +
+                '<button data-stream-end="' + courtId + '" style="background:#5a1f1f">⏹ END</button>'
               : '<button disabled>' + streamStatusDot(st.youtubeStatus) + "</button>") +
             "</div>";
         }
@@ -468,6 +488,16 @@
           });
         } else if (t.dataset.streamStop) {
           await api("/courts/" + t.dataset.streamStop + "/streaming/stop", {});
+        } else if (t.dataset.streamEnd) {
+          const id = t.dataset.streamEnd;
+          if (!confirm("End the stream for Court " + id + "? This finishes the YouTube broadcast (the video is archived and cannot be resumed).")) return;
+          await api("/courts/" + id + "/streaming/end", {});
+        } else if (t.dataset.courtTicker) {
+          const id = t.dataset.courtTicker;
+          const input = document.getElementById("ct-" + id);
+          const text = input ? input.value : "";
+          const r = await api("/courts/" + id + "/ticker", { text });
+          courtTickers.set(Number(id), r.ticker || "");
         } else if (t.dataset.suggest) {
           const id = t.dataset.suggest;
           const { title } = await api("/courts/" + id + "/streaming/suggest-title");
@@ -495,6 +525,12 @@
       socket.on("court:cleared", (msg) => {
         state.delete(msg.courtId);
         renderCourt(msg.courtId);
+      });
+      socket.on("court:ticker", (msg) => {
+        courtTickers.set(msg.courtId, msg.ticker || "");
+        // Only repaint if the operator isn't actively editing this field.
+        const input = document.getElementById("ct-" + msg.courtId);
+        if (!input || document.activeElement !== input) renderStreaming(msg.courtId);
       });
 
       // --- YouTube account (Login with YouTube) ---

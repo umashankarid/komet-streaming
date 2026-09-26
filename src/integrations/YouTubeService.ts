@@ -264,9 +264,9 @@ export class YouTubeApiService implements YouTubeService {
           },
           contentDetails: {
             enableAutoStart: true,
-            enableAutoStop: true,
-            // Cut player buffering from ~30s to ~2-5s. "ultraLow" disables
-            // DVR/some features but is best for live sports interaction.
+            // Keep the broadcast alive when video pauses, so it can be resumed
+            // (Stop = pause). We complete it explicitly on End.
+            enableAutoStop: false,
             latencyPreference: "ultraLow",
             enableDvr: false,
           },

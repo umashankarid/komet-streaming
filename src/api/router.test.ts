@@ -142,6 +142,17 @@ describe("REST API", () => {
     expect(res.body.tickerText).toBe("Semi Final coming up");
   });
 
+  it("sets a court ticker WITHOUT a match", async () => {
+    // No match created on court 3.
+    const res = await request(app)
+      .post("/api/courts/3/ticker")
+      .send({ text: "BMK Komet — Welcome" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ courtId: 3, ticker: "BMK Komet — Welcome" });
+    const get = await request(app).get("/api/courts/3/ticker");
+    expect(get.body.ticker).toBe("BMK Komet — Welcome");
+  });
+
   describe("streaming routes", () => {
     it("returns default streaming state for a court", async () => {
       const res = await request(app).get("/api/courts/2/streaming");
@@ -207,7 +218,16 @@ describe("REST API", () => {
 
       const stop = await request(app).post("/api/courts/1/streaming/stop");
       expect(stop.status).toBe(200);
-      expect(stop.body.youtubeStatus).toBe("idle");
+      // Stop = pause (keeps the broadcast so it can be resumed).
+      expect(stop.body.youtubeStatus).toBe("paused");
+
+      // Start again resumes the same broadcast.
+      const resume = await request(app).post("/api/courts/1/streaming/start").send({});
+      expect(resume.body.youtubeStatus).toBe("live");
+
+      // End completes it.
+      const end = await request(app).post("/api/courts/1/streaming/end");
+      expect(end.body.youtubeStatus).toBe("idle");
     });
 
     it("auto-generates the title on start when omitted", async () => {
@@ -269,6 +289,9 @@ describe("streaming routes with a YouTube service", () => {
       async completeBroadcast(id: string) {
         calls.push("complete:" + id);
       },
+      async deleteBroadcast(id: string) {
+        calls.push("delete:" + id);
+      },
     };
     const app = appWith(youtube);
     const start = await request(app)
@@ -280,9 +303,16 @@ describe("streaming routes with a YouTube service", () => {
     // No transitionToLive call — broadcasts use enableAutoStart.
     expect(calls).toEqual(["create:Komet Final"]);
 
+    // Stop = pause: does NOT complete the broadcast.
     const stop = await request(app).post("/api/courts/1/streaming/stop");
     expect(stop.status).toBe(200);
-    expect(stop.body.youtubeStatus).toBe("idle");
+    expect(stop.body.youtubeStatus).toBe("paused");
+    expect(calls).not.toContain("complete:yt-777");
+
+    // End completes the broadcast.
+    const end = await request(app).post("/api/courts/1/streaming/end");
+    expect(end.status).toBe(200);
+    expect(end.body.youtubeStatus).toBe("idle");
     expect(calls).toContain("complete:yt-777");
   });
 

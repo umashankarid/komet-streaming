@@ -42,6 +42,8 @@ export class Court {
    */
   readonly streaming: CourtStreaming;
   private currentMatch?: Match;
+  /** Court-level scrolling ticker text, independent of any match. */
+  private tickerText?: string;
 
   constructor(id: number) {
     if (!Number.isInteger(id) || id < 1) {
@@ -54,6 +56,16 @@ export class Court {
 
   getMatch(): Match | undefined {
     return this.currentMatch;
+  }
+
+  /** The court ticker text (independent of match). */
+  getTicker(): string | undefined {
+    return this.tickerText;
+  }
+
+  /** Set/clear the court ticker text (works with or without a match). */
+  setTicker(text: string | undefined): void {
+    this.tickerText = text?.trim() || undefined;
   }
 
   assignMatch(match: Match): void {

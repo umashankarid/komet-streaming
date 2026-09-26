@@ -24,6 +24,7 @@ export type YoutubeStatus =
   | "idle"
   | "starting"
   | "live"
+  | "paused"
   | "stopping"
   | "error";
 
@@ -210,21 +211,50 @@ export class CourtStreaming {
     this.startedAt = this.now();
   }
 
-  /** Begin the stop sequence: live -> stopping. */
+  /** Pause: live -> paused. Keeps the broadcast so it can be resumed. */
   requestStop(): void {
     if (this.status !== "live") {
-      throw new Error(`Cannot stop stream from status "${this.status}"`);
+      throw new Error(`Cannot pause stream from status "${this.status}"`);
     }
-    this.status = "stopping";
+    this.status = "paused";
   }
 
   /**
-   * Finalize the stop: stopping -> idle. The camera connection is intentionally
-   * preserved (STOP STREAM keeps the SRT camera ready).
+   * Finalize the pause: paused stays paused (broadcast kept). Retained for API
+   * compatibility; pausing keeps broadcastId so a later resume reuses it.
    */
   confirmStopped(): void {
-    if (this.status !== "stopping") {
-      throw new Error(`Cannot finish stopping from status "${this.status}"`);
+    if (this.status !== "paused" && this.status !== "stopping") {
+      throw new Error(`Cannot finish pausing from status "${this.status}"`);
+    }
+    this.status = "paused";
+    // Broadcast intentionally kept for resume.
+  }
+
+  /** Resume a paused broadcast: paused -> live (same broadcastId). */
+  resume(): void {
+    if (this.status !== "paused") {
+      throw new Error(`Cannot resume from status "${this.status}"`);
+    }
+    if (!this.broadcastId) {
+      throw new Error("No broadcast to resume");
+    }
+    this.status = "live";
+    if (this.startedAt === undefined) this.startedAt = this.now();
+  }
+
+  /** True if there is an active (live or paused) broadcast to resume/end. */
+  hasActiveBroadcast(): boolean {
+    return (
+      (this.status === "live" || this.status === "paused") &&
+      Boolean(this.broadcastId)
+    );
+  }
+
+  /** End the session: complete the broadcast and return to idle. */
+  end(): void {
+    if (this.status !== "live" && this.status !== "paused") {
+      throw new Error(`Cannot end from status "${this.status}"`);
     }
     this.status = "idle";
     this.broadcastId = undefined;

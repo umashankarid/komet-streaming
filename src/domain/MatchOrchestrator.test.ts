@@ -97,6 +97,18 @@ describe("MatchOrchestrator", () => {
     expect(cleared).toHaveBeenCalledWith(1);
   });
 
+  it("sets a court-level ticker without a match and notifies", () => {
+    const listener = vi.fn();
+    orch.onCourtTicker(listener);
+    // No match on court 3.
+    const t = orch.setCourtTicker(3, "  Sponsor: BMK  ");
+    expect(t).toBe("Sponsor: BMK");
+    expect(orch.getCourtTicker(3)).toBe("Sponsor: BMK");
+    expect(listener).toHaveBeenCalledWith(3, "Sponsor: BMK");
+    expect(orch.snapshot(3)).toBeUndefined(); // still no match
+    expect(orch.setCourtTicker(3, "")).toBeUndefined();
+  });
+
   it("scorePoint auto-advances to the next game when a game is won", () => {
     // 11-point games, best of 3.
     orch.createMatch({
@@ -180,9 +192,13 @@ describe("MatchOrchestrator", () => {
       expect(live.youtubeStatus).toBe("live");
       expect(live.broadcastId).toBe("yt-1");
 
-      expect(orch.requestStreamStop(1).youtubeStatus).toBe("stopping");
-      expect(orch.confirmStreamStopped(1).youtubeStatus).toBe("idle");
-      expect(listener).toHaveBeenCalledTimes(4);
+      // Pause keeps the broadcast, resume returns to live, end clears it.
+      expect(orch.requestStreamStop(1).youtubeStatus).toBe("paused");
+      expect(orch.confirmStreamStopped(1).youtubeStatus).toBe("paused");
+      expect(orch.hasActiveBroadcast(1)).toBe(true);
+      expect(orch.resumeStream(1).youtubeStatus).toBe("live");
+      expect(orch.endStream(1).youtubeStatus).toBe("idle");
+      expect(orch.hasActiveBroadcast(1)).toBe(false);
     });
 
     it("auto-generates the title on start when none is provided", () => {
